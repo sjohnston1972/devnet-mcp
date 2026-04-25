@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a1929" />
+    <title>DevNet Copilot — Cisco MCP chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.10.0/build/styles/atom-one-dark.min.css"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%2300bceb'/%3E%3Cpath d='M30 55h12v15H30zM44 40h12v30H44zM58 25h12v45H58z' fill='%23071726'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 100 100" width="34" height="34">
+              <rect width="100" height="100" rx="22" fill="url(#g)" />
+              <defs>
+                <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+                  <stop offset="0" stop-color="#00bceb" />
+                  <stop offset="1" stop-color="#1e88e5" />
+                </linearGradient>
+              </defs>
+              <path d="M22 60h10v18H22zM38 46h10v32H38zM54 32h10v46H54zM70 18h10v60H70z" fill="#071726" />
+            </svg>
+          </div>
+          <div class="brand-text">
+            <h1>DevNet Copilot</h1>
+            <span class="subtitle">Cisco MCP · Meraki + Catalyst Center</span>
+          </div>
+        </div>
+        <div class="status" id="status">
+          <span class="dot"></span>
+          <span class="status-text">connected</span>
+        </div>
+        <div class="actions">
+          <button class="btn ghost" id="exportBtn" title="Export chat as Markdown">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>Export</span>
+          </button>
+          <button class="btn ghost danger" id="clearBtn" title="Clear chat">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+            <span>Clear</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="messages" id="messages">
+        <div class="welcome">
+          <div class="welcome-card">
+            <h2>Ask anything about Cisco APIs.</h2>
+            <p>Connected live to Cisco's DevNet MCP server. Replies cite real operation IDs and doc URLs.</p>
+            <div class="suggestions">
+              <button class="chip">Show L3 firewall rules config for Meraki</button>
+              <button class="chip">Find OAuth setup for Meraki APIs</button>
+              <button class="chip">Catalyst Center device inventory APIs</button>
+              <button class="chip">Spec for createNetworkMerakiAuthUser</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="composer-inner">
+          <textarea
+            id="input"
+            placeholder="Ask about Meraki, Catalyst Center, an operationId…"
+            rows="1"
+            maxlength="4000"
+          ></textarea>
+          <button class="send" id="sendBtn" type="submit" aria-label="Send">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        <div class="footnote">
+          Powered by Workers AI · MCP at <code>devnet.cisco.com</code> · ⌘/Ctrl+Enter to send
+        </div>
+      </form>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.10.0/build/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
