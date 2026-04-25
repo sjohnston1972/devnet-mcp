@@ -159,56 +159,89 @@ function makeTestBtn(call, preEl) {
   const btn = document.createElement("button");
   btn.className = "test-btn";
   btn.type = "button";
-  btn.title = `Run ${call.method} ${call.path} against the linked Meraki org`;
-  btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg><span>Test in sandbox</span>`;
+  btn.dataset.env = "dev";
+  btn.title = `Push ${call.method} ${call.path} to the DEV sandbox`;
+  btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg><span>Push to DEV</span>`;
 
-  if (linkOrg.mode === "byok" && linkOrg.byokKey) {
-    btn.dataset.mode = "byok";
-    btn.querySelector("span").textContent = "Test with my org";
-  }
-
-  btn.addEventListener("click", async () => {
-    if (btn.classList.contains("running")) return;
-    btn.classList.add("running");
-    btn.querySelector("span").textContent = "running…";
-
-    const existing = preEl.parentNode.querySelector(`.sandbox-response[data-pre="${preEl.dataset.testKey}"]`);
-    if (existing) existing.remove();
-    if (!preEl.dataset.testKey) {
-      preEl.dataset.testKey = `sr-${Math.random().toString(36).slice(2, 8)}`;
-    }
-
-    try {
-      const headers = { "content-type": "application/json" };
-      if (linkOrg.mode === "byok" && linkOrg.byokKey) {
-        headers["x-user-meraki-key"] = linkOrg.byokKey;
-      }
-      const r = await fetch("/api/sandbox-call", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(call),
-      });
-      const data = await r.json();
-      renderSandboxResponse(preEl, call, data, r.status);
-    } catch (err) {
-      renderSandboxResponse(preEl, call, { error: err?.message ?? String(err) }, 0);
-    } finally {
-      btn.classList.remove("running");
-      btn.querySelector("span").textContent =
-        linkOrg.mode === "byok" && linkOrg.byokKey ? "Test with my org" : "Test in sandbox";
-    }
-  });
+  btn.addEventListener("click", () => runPush(call, preEl, "dev", btn));
 
   return btn;
 }
 
-function renderSandboxResponse(preEl, call, data, httpStatus) {
+async function runPush(call, preEl, env, triggerBtn) {
+  if (env === "prod" && !linkOrg.byokKey) {
+    openLinkModal();
+    return;
+  }
+  if (env === "prod") {
+    const confirmMsg = `Push ${call.method} ${call.path}\n\nto your PROD Meraki dashboard?\n\nReads are safe; writes change live config.`;
+    if (!confirm(confirmMsg)) return;
+  }
+
+  if (triggerBtn) {
+    triggerBtn.classList.add("running");
+    const label = triggerBtn.querySelector("span");
+    if (label) label.dataset.prev = label.textContent;
+    if (label) label.textContent = "running…";
+  }
+
+  if (!preEl.dataset.testKey) {
+    preEl.dataset.testKey = `sr-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  // Remove any prior response panel for this env+code-block (keep the other env's panel)
+  const existing = preEl.parentNode.querySelector(
+    `.sandbox-response[data-pre="${preEl.dataset.testKey}"][data-env="${env}"]`,
+  );
+  if (existing) existing.remove();
+
+  try {
+    const headers = { "content-type": "application/json" };
+    if (env === "prod") {
+      headers["x-user-meraki-key"] = linkOrg.byokKey;
+      if (linkOrg.byokOrg) headers["x-user-meraki-org"] = linkOrg.byokOrg;
+      if (linkOrg.byokNet) headers["x-user-meraki-network"] = linkOrg.byokNet;
+    }
+    const r = await fetch("/api/sandbox-call", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(call),
+    });
+    const data = await r.json();
+    renderSandboxResponse(preEl, call, data, r.status, env);
+  } catch (err) {
+    renderSandboxResponse(
+      preEl,
+      call,
+      { error: err?.message ?? String(err) },
+      0,
+      env,
+    );
+  } finally {
+    if (triggerBtn) {
+      triggerBtn.classList.remove("running");
+      const label = triggerBtn.querySelector("span");
+      if (label && label.dataset.prev) {
+        label.textContent = label.dataset.prev;
+        delete label.dataset.prev;
+      }
+    }
+  }
+}
+
+function renderSandboxResponse(preEl, call, data, httpStatus, env) {
   const wrap = document.createElement("div");
   wrap.className = "sandbox-response";
+  wrap.dataset.env = env;
   wrap.dataset.pre = preEl.dataset.testKey;
 
   const head = document.createElement("div");
   head.className = "sr-head";
+
+  const envBadge = document.createElement("span");
+  envBadge.className = "sr-env";
+  envBadge.dataset.env = env;
+  envBadge.textContent = env.toUpperCase();
 
   const method = document.createElement("span");
   method.className = "sr-method";
@@ -232,13 +265,30 @@ function renderSandboxResponse(preEl, call, data, httpStatus) {
   time.className = "sr-time";
   if (typeof data.elapsedMs === "number") time.textContent = `${data.elapsedMs} ms`;
 
+  // Promote-to-PROD button — only on a successful DEV response
+  let promoteBtn = null;
+  if (env === "dev" && ok) {
+    promoteBtn = document.createElement("button");
+    promoteBtn.className = "sr-promote";
+    promoteBtn.type = "button";
+    promoteBtn.title = linkOrg.byokKey
+      ? "Run the same call against your PROD org"
+      : "Link a PROD org first";
+    promoteBtn.innerHTML = `<span>Push to PROD</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
+    promoteBtn.addEventListener("click", () => {
+      runPush(call, preEl, "prod", promoteBtn);
+    });
+  }
+
   const close = document.createElement("button");
   close.className = "sr-close";
   close.type = "button";
   close.innerHTML = "&times;";
   close.addEventListener("click", () => wrap.remove());
 
-  head.append(method, path, status, time, close);
+  head.append(envBadge, method, path, status, time);
+  if (promoteBtn) head.append(promoteBtn);
+  head.append(close);
 
   const body = document.createElement("div");
   body.className = "sr-body";
@@ -246,7 +296,8 @@ function renderSandboxResponse(preEl, call, data, httpStatus) {
   if (data.error && !data.body) {
     const errEl = document.createElement("div");
     errEl.className = "sr-error";
-    errEl.textContent = data.error + (data.unresolved ? `\nUnresolved: ${data.unresolved.join(", ")}` : "");
+    errEl.textContent =
+      data.error + (data.unresolved ? `\nUnresolved: ${data.unresolved.join(", ")}` : "");
     body.appendChild(errEl);
   } else {
     const pre = document.createElement("pre");
@@ -263,7 +314,16 @@ function renderSandboxResponse(preEl, call, data, httpStatus) {
   }
 
   wrap.append(head, body);
-  preEl.after(wrap);
+
+  // Append PROD panel after DEV panel (don't replace), and before any subsequent panels
+  const existingDev = preEl.parentNode.querySelector(
+    `.sandbox-response[data-pre="${preEl.dataset.testKey}"][data-env="dev"]`,
+  );
+  if (env === "prod" && existingDev) {
+    existingDev.after(wrap);
+  } else {
+    preEl.after(wrap);
+  }
 }
 
 /* --------- message DOM --------- */
@@ -822,37 +882,38 @@ function saveByok() {
 }
 
 function applyLinkState() {
-  // Top button pill
-  if (linkOrg.mode === "byok" && linkOrg.byokKey) {
-    modalEls.pill.hidden = false;
-    modalEls.pill.textContent = "your org";
-    modalEls.btn.dataset.mode = "byok";
-  } else if (linkOrg.info?.hasServerKey) {
-    modalEls.pill.hidden = false;
-    modalEls.pill.textContent = "sandbox";
-    modalEls.btn.dataset.mode = "sandbox";
-  } else {
-    modalEls.pill.hidden = false;
+  const devLinked = Boolean(linkOrg.info?.hasServerKey);
+  const prodLinked = Boolean(linkOrg.byokKey);
+
+  // Top button pill: shows what's linked
+  modalEls.pill.hidden = false;
+  if (!devLinked && !prodLinked) {
     modalEls.pill.textContent = "set up";
     modalEls.btn.dataset.mode = "missing";
+  } else if (devLinked && prodLinked) {
+    modalEls.pill.textContent = "DEV / PROD";
+    modalEls.btn.dataset.mode = "prod";
+  } else if (prodLinked) {
+    modalEls.pill.textContent = "PROD";
+    modalEls.btn.dataset.mode = "prod";
+  } else {
+    modalEls.pill.textContent = "DEV";
+    modalEls.btn.dataset.mode = "dev";
   }
 
-  // Card active states
-  modalEls.sandboxCard.dataset.active = linkOrg.mode === "sandbox" ? "true" : "false";
-  modalEls.byokCard.dataset.active = linkOrg.mode === "byok" ? "true" : "false";
-  modalEls.byokCard.dataset.mode = "byok";
-  modalEls.sandboxPill.hidden = linkOrg.mode !== "sandbox";
-  modalEls.byokPill.hidden = linkOrg.mode !== "byok";
+  // Card linked/active markers
+  modalEls.sandboxCard.dataset.active = devLinked ? "true" : "false";
+  modalEls.byokCard.dataset.active = prodLinked ? "true" : "false";
+  modalEls.sandboxPill.hidden = !devLinked;
+  modalEls.sandboxPill.textContent = "linked";
+  modalEls.byokPill.hidden = !prodLinked;
+  modalEls.byokPill.textContent = "linked";
 
-  // Re-paint test buttons in existing chat
-  document.querySelectorAll(".test-btn").forEach((btn) => {
-    if (linkOrg.mode === "byok" && linkOrg.byokKey) {
-      btn.dataset.mode = "byok";
-      btn.querySelector("span").textContent = "Test with my org";
-    } else {
-      delete btn.dataset.mode;
-      btn.querySelector("span").textContent = "Test in sandbox";
-    }
+  // Existing PROD-promote buttons reflect current PROD-link state
+  document.querySelectorAll(".sr-promote").forEach((btn) => {
+    btn.title = prodLinked
+      ? "Run the same call against your PROD org"
+      : "Link a PROD org first";
   });
 }
 
@@ -902,8 +963,6 @@ document.addEventListener("keydown", (e) => {
 });
 
 modalEls.useSandboxBtn.addEventListener("click", () => {
-  linkOrg.mode = "sandbox";
-  applyLinkState();
   closeLinkModal();
 });
 
@@ -916,7 +975,6 @@ modalEls.saveByokBtn.addEventListener("click", () => {
   linkOrg.byokKey = key;
   linkOrg.byokOrg = modalEls.byokOrg.value.trim();
   linkOrg.byokNet = modalEls.byokNet.value.trim();
-  linkOrg.mode = "byok";
   saveByok();
   applyLinkState();
   closeLinkModal();
@@ -929,7 +987,6 @@ modalEls.clearByokBtn.addEventListener("click", () => {
   modalEls.byokKey.value = "";
   modalEls.byokOrg.value = "";
   modalEls.byokNet.value = "";
-  linkOrg.mode = "sandbox";
   saveByok();
   applyLinkState();
 });
@@ -940,7 +997,6 @@ if (stored?.key) {
   linkOrg.byokKey = stored.key;
   linkOrg.byokOrg = stored.org ?? "";
   linkOrg.byokNet = stored.net ?? "";
-  linkOrg.mode = "byok";
 }
 
 fetchSandboxInfo();

@@ -94,7 +94,7 @@
           <button class="btn ghost" id="linkOrgBtn" title="Link a Meraki org for live API testing">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             <span class="link-org-label">Link Org</span>
-            <span class="link-org-pill" id="linkOrgPill" hidden>sandbox</span>
+            <span class="link-org-pill" id="linkOrgPill" hidden>DEV</span>
           </button>
           <button class="btn ghost" id="exportBtn" title="Export chat as Markdown">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -111,7 +111,7 @@
         <div class="welcome">
           <div class="welcome-card">
             <h2>Ask anything about Cisco APIs.</h2>
-            <p>Live wire to Cisco's DevNet MCP server. Replies cite real operation IDs and doc URLs — and any Meraki snippet has a one-click <strong>Test in sandbox</strong> button.</p>
+            <p>Live wire to Cisco's DevNet MCP server. Replies cite real operation IDs and doc URLs — and any Meraki snippet has a one-click <strong>Test in DEV</strong> button (or PROD, if you've linked one).</p>
             <div class="suggestions">
               <button class="chip">Show L3 firewall rules config for Meraki</button>
               <button class="chip">Find OAuth setup for Meraki APIs</button>
@@ -144,26 +144,28 @@
       <div class="modal-backdrop" data-modal-close></div>
       <div class="modal-card">
         <header class="modal-head">
-          <h3 id="linkOrgTitle">Link your Meraki org</h3>
+          <h3 id="linkOrgTitle">Linked organizations</h3>
           <button class="modal-close" type="button" data-modal-close aria-label="Close">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </header>
         <p class="modal-sub">
-          Pick which Meraki dashboard the <em>Test in sandbox</em> buttons in this chat call against.
-          Server holds the sandbox key as a secret; your own keys never leave your browser except as a request header.
+          Two slots: <strong>DEV</strong> uses the always-on Cisco DevNet Sandbox (server-managed key).
+          <strong>PROD</strong> uses your real production org via BYOK — key stays in your browser.
+          Pick which one Test buttons in chat call against.
         </p>
 
-        <section class="link-card" id="sandboxCard" data-active="true">
+        <section class="link-card" id="sandboxCard" data-env="dev" data-active="true">
           <div class="link-card-head">
-            <div class="link-card-icon" data-variant="sandbox">
+            <span class="env-badge" data-env="dev">DEV</span>
+            <div class="link-card-icon" data-variant="dev">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
             </div>
             <div class="link-card-title">
               <strong id="sandboxName">Cisco DevNet Sandbox</strong>
               <span id="sandboxBase" class="muted">api.meraki.com/api/v1</span>
             </div>
-            <span class="link-pill" id="sandboxPill">active</span>
+            <span class="link-pill" id="sandboxPill" data-env="dev">active</span>
           </div>
           <div class="link-card-body">
             <div class="kv">
@@ -180,40 +182,45 @@
             </div>
           </div>
           <div class="link-card-actions">
-            <button class="btn small" type="button" id="useSandboxBtn">Use this sandbox</button>
+            <button class="btn small" type="button" id="useSandboxBtn">Use DEV</button>
             <a class="btn small ghost" id="sandboxDocs" href="https://developer.cisco.com/meraki/sandbox/" target="_blank" rel="noopener">Sandbox docs ↗</a>
           </div>
         </section>
 
-        <section class="link-card" id="byokCard">
+        <section class="link-card" id="byokCard" data-env="prod">
           <div class="link-card-head">
-            <div class="link-card-icon" data-variant="byok">
+            <span class="env-badge" data-env="prod">PROD</span>
+            <div class="link-card-icon" data-variant="prod">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
             </div>
             <div class="link-card-title">
-              <strong>Your own organization</strong>
-              <span class="muted">Bring your own dashboard API key</span>
+              <strong>Your production org</strong>
+              <span class="muted">BYOK — bring your dashboard API key</span>
             </div>
-            <span class="link-pill" id="byokPill" hidden>active</span>
+            <span class="link-pill" id="byokPill" data-env="prod" hidden>active</span>
           </div>
           <div class="link-card-body">
+            <div class="prod-warning" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Calls go to your real Meraki dashboard. Reads are safe; writes change live config.
+            </div>
             <label class="field">
               <span>Meraki Dashboard API key</span>
               <input id="byokKey" type="password" autocomplete="off" placeholder="40-char key from dashboard.meraki.com" spellcheck="false" />
               <small>Stored in this browser's localStorage. Sent only as a header on test calls. Never persisted on the server.</small>
             </label>
             <label class="field">
-              <span>Default org ID <span class="muted">(optional, used to substitute <code>{organizationId}</code>)</span></span>
+              <span>Default org ID <span class="muted">(optional, substitutes <code>{organizationId}</code>)</span></span>
               <input id="byokOrg" type="text" autocomplete="off" placeholder="e.g. 549236" spellcheck="false" />
             </label>
             <label class="field">
-              <span>Default network ID <span class="muted">(optional, used to substitute <code>{networkId}</code>)</span></span>
+              <span>Default network ID <span class="muted">(optional, substitutes <code>{networkId}</code>)</span></span>
               <input id="byokNet" type="text" autocomplete="off" placeholder="e.g. L_xxxxxxxxxxxxxxx" spellcheck="false" />
             </label>
           </div>
           <div class="link-card-actions">
-            <button class="btn small primary" type="button" id="saveByokBtn">Save &amp; use my key</button>
-            <button class="btn small ghost danger" type="button" id="clearByokBtn">Clear stored key</button>
+            <button class="btn small primary" type="button" id="saveByokBtn">Save &amp; use PROD</button>
+            <button class="btn small ghost danger" type="button" id="clearByokBtn">Unlink PROD</button>
           </div>
         </section>
       </div>

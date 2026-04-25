@@ -123,6 +123,8 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
 
   const cfg = sandboxConfig(env);
   const userKey = request.headers.get("x-user-meraki-key")?.trim();
+  const userOrg = request.headers.get("x-user-meraki-org")?.trim();
+  const userNet = request.headers.get("x-user-meraki-network")?.trim();
   const apiKey = userKey || env.MERAKI_SANDBOX_API_KEY;
 
   if (!apiKey) {
@@ -135,16 +137,20 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
     );
   }
 
+  // BYOK: prefer user-provided org/network IDs over server sandbox values
+  const orgId = userKey ? (userOrg || cfg.orgId) : cfg.orgId;
+  const netId = userKey ? (userNet || cfg.networkId) : cfg.networkId;
+
   const placeholders: Record<string, string> = {};
-  if (cfg.orgId) {
-    placeholders["{organizationId}"] = cfg.orgId;
-    placeholders["{orgId}"] = cfg.orgId;
+  if (orgId) {
+    placeholders["{organizationId}"] = orgId;
+    placeholders["{orgId}"] = orgId;
   }
-  if (cfg.networkId) {
-    placeholders["{networkId}"] = cfg.networkId;
-    placeholders["{netId}"] = cfg.networkId;
+  if (netId) {
+    placeholders["{networkId}"] = netId;
+    placeholders["{netId}"] = netId;
   }
-  if (cfg.serial) {
+  if (cfg.serial && !userKey) {
     placeholders["{serial}"] = cfg.serial;
   }
 
@@ -218,6 +224,7 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
     headers: interestingHeaders,
     body: respBody,
     usedUserKey: Boolean(userKey),
+    env: userKey ? "prod" : "dev",
   });
 }
 
