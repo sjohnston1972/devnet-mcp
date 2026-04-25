@@ -88,7 +88,8 @@ function decorateCodeBlocks(scope) {
     });
 
     const merakiCall = code ? detectMerakiCall(code.textContent ?? "") : null;
-    if (merakiCall) {
+    const isScriptLang = lang === "python" || lang === "py";
+    if (merakiCall && !isScriptLang) {
       const testBtn = makeTestBtn(merakiCall, pre);
       headerActions.appendChild(testBtn);
     }
