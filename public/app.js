@@ -1168,7 +1168,6 @@ const prodModalEls = {
   path: document.getElementById("prodModalPath"),
   net: document.getElementById("prodModalNetwork"),
   netId: document.getElementById("prodModalNetworkId"),
-  notice: document.getElementById("prodCrNotice"),
   cancel: document.getElementById("prodCancelBtn"),
   cr: document.getElementById("prodChangeRequestBtn"),
   confirm: document.getElementById("prodConfirmBtn"),
@@ -1186,7 +1185,6 @@ function confirmProdPush(call) {
     prodModalEls.net.textContent = prodSlot.networkName ?? "PROD network";
     prodModalEls.netId.textContent = prodSlot.networkId ?? "—";
 
-    prodModalEls.notice.hidden = true;
     prodModalEls.modal.hidden = false;
     // Default focus to Cancel for safety — Enter shouldn't push.
     prodModalEls.cancel.focus();
@@ -1207,9 +1205,8 @@ prodModalEls.modal.querySelectorAll("[data-modal-close]").forEach((el) => {
 prodModalEls.cancel.addEventListener("click", () => closeProdModal(false));
 prodModalEls.confirm.addEventListener("click", () => closeProdModal(true));
 prodModalEls.cr.addEventListener("click", () => {
-  // Unwired stub — surface a notice and keep the modal open so the user
-  // can choose between cancel and "push with no change request".
-  prodModalEls.notice.hidden = false;
+  // Unwired stub — silent no-op for now. Click is a placeholder until
+  // a change-request workflow integration is wired up.
 });
 
 document.addEventListener("keydown", (e) => {
