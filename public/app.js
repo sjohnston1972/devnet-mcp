@@ -106,6 +106,38 @@ const MERAKI_PATH_HINTS = [
   /\/(?:organizations|networks|devices|admins|licenses|inventoryDevices|merakiAuthUsers|wireless|switch|appliance|camera|cellularGateway|sensor|sm|insight)\b/,
 ];
 
+/**
+ * LLMs love to bake literal example IDs into snippets (N_123456789, L_xxxx,
+ * 549236, YOUR_NETWORK_ID, <networkId>, etc). Those hit nothing real and
+ * 404. Rewrite anything that *looks* like a fake to the proper template
+ * placeholder so the worker substitutes the user's actual DEV/PROD value.
+ */
+function normalizeExampleIds(path) {
+  return (
+    path
+      // Network IDs: N_/L_ + sequential digits or x-padding
+      .replace(/[NL]_(?:1234567890?|123456789|0+|x{4,})\b/gi, "{networkId}")
+      // Network IDs: any all-same-digit run after N_/L_ (e.g. N_111111111)
+      .replace(/[NL]_(\d)\1{6,}\b/g, "{networkId}")
+      // Org IDs: classic example sequences sitting after /organizations/
+      .replace(
+        /\/organizations\/(?:1234567890?|123456789|0{6,}|9{6,})\b/g,
+        "/organizations/{organizationId}",
+      )
+      // Angle-bracket templates: <networkId>, <organizationId>, <serial>
+      .replace(/<\s*networkId\s*>/gi, "{networkId}")
+      .replace(/<\s*organizationId\s*>/gi, "{organizationId}")
+      .replace(/<\s*orgId\s*>/gi, "{organizationId}")
+      .replace(/<\s*serial\s*>/gi, "{serial}")
+      // YOUR_NETWORK_ID / your-network-id / your_org_id etc.
+      .replace(/\byour[_-]?network[_-]?id\b/gi, "{networkId}")
+      .replace(/\byour[_-]?org(?:anization)?[_-]?id\b/gi, "{organizationId}")
+      // ALL_CAPS NETWORK_ID / ORG_ID literals
+      .replace(/\bNETWORK_ID\b/g, "{networkId}")
+      .replace(/\bORG(?:ANIZATION)?_ID\b/g, "{organizationId}")
+  );
+}
+
 function detectMerakiCall(text) {
   if (!text || text.length > 20_000) return null;
 
@@ -125,6 +157,8 @@ function detectMerakiCall(text) {
   }
 
   if (!path) return null;
+
+  path = normalizeExampleIds(path);
 
   if (!path.startsWith("/api/v1") && !path.startsWith("/v1")) {
     if (MERAKI_PATH_HINTS.some((re) => re.test(path))) {
