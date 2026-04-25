@@ -173,20 +173,23 @@ function detectMerakiCall(text) {
   if (m) method = m[1].toUpperCase();
 
   let body = null;
+  let bodyError = null;
+  let rawBody = null;
   const dataMatch =
     text.match(/(?:--data-raw|--data|-d)\s+(['"])([\s\S]+?)\1/) ||
     text.match(/json\s*=\s*(\{[\s\S]*?\})\s*[,)]/) ||
     text.match(/data\s*=\s*(\{[\s\S]*?\})\s*[,)]/);
   if (dataMatch) {
-    const raw = dataMatch[2] ?? dataMatch[1];
+    rawBody = dataMatch[2] ?? dataMatch[1];
     try {
-      body = JSON.parse(raw);
-    } catch {
-      body = raw;
+      body = JSON.parse(rawBody);
+    } catch (err) {
+      body = null;
+      bodyError = err?.message ?? String(err);
     }
   }
 
-  return { method, path, body };
+  return { method, path, body, bodyError, rawBody };
 }
 
 function makeTestBtn(call, preEl) {
@@ -206,6 +209,26 @@ async function runPush(call, preEl, env, triggerBtn) {
   // Rewrite path placeholders BEFORE anything else so the prod confirm
   // dialog and the response panel both reflect what will actually be sent.
   const normalizedCall = { ...call, path: normalizeMerakiPath(call.path) };
+
+  // If the snippet's body isn't valid JSON, refuse to send. Showing this
+  // locally avoids forwarding broken JSON to Meraki and getting back a
+  // generic 400 — the user sees the actual parse problem and the raw text.
+  if (normalizedCall.bodyError) {
+    if (!preEl.dataset.testKey) {
+      preEl.dataset.testKey = `sr-${Math.random().toString(36).slice(2, 8)}`;
+    }
+    const rawPreview = normalizedCall.rawBody?.slice(0, 1500) ?? "";
+    renderSandboxResponse(
+      preEl,
+      normalizedCall,
+      {
+        error: `Request body in the snippet isn't valid JSON.\n\nParser said: ${normalizedCall.bodyError}\n\n--- raw body ---\n${rawPreview}\n\nFix the snippet (or ask the assistant to regenerate) and try again. Nothing was sent to Meraki.`,
+      },
+      0,
+      env,
+    );
+    return;
+  }
 
   if (env === "prod") {
     const prodReady = Boolean(linkOrg.info?.slots?.prod?.ready);
