@@ -1,7 +1,6 @@
 /* Cisco API Navigator — chat client */
 
 
-const STORAGE_KEY = "devnet-chat-history-v1";
 const MAX_HISTORY = 30;
 
 const els = {
@@ -14,7 +13,12 @@ const els = {
   status: document.getElementById("status"),
 };
 
-let history = loadHistory();
+let history = [];
+
+// Drop any pre-existing chat history from older builds so refresh = clean.
+try {
+  localStorage.removeItem("devnet-chat-history-v1");
+} catch {}
 let streaming = false;
 let userScrolled = false;
 
@@ -778,25 +782,13 @@ document.addEventListener("visibilitychange", () => {
 
 startHealthPolling();
 
-/* --------- storage --------- */
-
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
+/* --------- in-memory history (refresh = clean slate) --------- */
 
 function saveHistory() {
-  try {
-    const trimmed = history.slice(-MAX_HISTORY);
-    history = trimmed;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
-  } catch {}
+  // History lives only in memory; just trim to the cap.
+  if (history.length > MAX_HISTORY) {
+    history = history.slice(-MAX_HISTORY);
+  }
 }
 
 /* --------- composer behaviour --------- */
