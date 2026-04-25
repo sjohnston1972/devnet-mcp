@@ -169,12 +169,14 @@ function makeTestBtn(call, preEl) {
 }
 
 async function runPush(call, preEl, env, triggerBtn) {
-  if (env === "prod" && !linkOrg.byokKey) {
-    openLinkModal();
-    return;
-  }
   if (env === "prod") {
-    const confirmMsg = `Push ${call.method} ${call.path}\n\nto your PROD Meraki dashboard?\n\nReads are safe; writes change live config.`;
+    const prodReady = Boolean(linkOrg.info?.slots?.prod?.ready);
+    if (!prodReady) {
+      openLinkModal();
+      return;
+    }
+    const prodNet = linkOrg.info?.slots?.prod?.networkName ?? "PROD network";
+    const confirmMsg = `Push ${call.method} ${call.path}\n\nto ${prodNet} (PROD)?\n\nReads are safe; writes change live config.`;
     if (!confirm(confirmMsg)) return;
   }
 
@@ -196,16 +198,16 @@ async function runPush(call, preEl, env, triggerBtn) {
   if (existing) existing.remove();
 
   try {
+    const o = linkOrg.overrides?.[env] ?? {};
     const headers = { "content-type": "application/json" };
-    if (env === "prod") {
-      headers["x-user-meraki-key"] = linkOrg.byokKey;
-      if (linkOrg.byokOrg) headers["x-user-meraki-org"] = linkOrg.byokOrg;
-      if (linkOrg.byokNet) headers["x-user-meraki-network"] = linkOrg.byokNet;
-    }
+    if (o.key) headers["x-user-meraki-key"] = o.key;
+    if (o.org) headers["x-user-meraki-org"] = o.org;
+    if (o.net) headers["x-user-meraki-network"] = o.net;
+
     const r = await fetch("/api/sandbox-call", {
       method: "POST",
       headers,
-      body: JSON.stringify(call),
+      body: JSON.stringify({ ...call, env }),
     });
     const data = await r.json();
     renderSandboxResponse(preEl, call, data, r.status, env);
@@ -271,9 +273,8 @@ function renderSandboxResponse(preEl, call, data, httpStatus, env) {
     promoteBtn = document.createElement("button");
     promoteBtn.className = "sr-promote";
     promoteBtn.type = "button";
-    promoteBtn.title = linkOrg.byokKey
-      ? "Run the same call against your PROD org"
-      : "Link a PROD org first";
+    const prodNetName = linkOrg.info?.slots?.prod?.networkName ?? "PROD";
+    promoteBtn.title = `Run the same call against ${prodNetName}`;
     promoteBtn.innerHTML = `<span>Push to PROD</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`;
     promoteBtn.addEventListener("click", () => {
       runPush(call, preEl, "prod", promoteBtn);
@@ -823,42 +824,18 @@ els.form.addEventListener("submit", (e) => {
 els.exportBtn.addEventListener("click", exportChat);
 els.clearBtn.addEventListener("click", clearChat);
 
-/* --------- Link Org / sandbox config --------- */
+/* --------- Link Org / DEV+PROD slot config --------- */
 
-const BYOK_KEY = "devnet-byok-v1";
+const OVERRIDES_KEY = "devnet-slot-overrides-v1";
 
 const linkOrg = {
   info: null,
-  mode: "sandbox", // "sandbox" | "byok"
-  byokKey: "",
-  byokOrg: "",
-  byokNet: "",
+  overrides: { dev: { key: "", org: "", net: "" }, prod: { key: "", org: "", net: "" } },
 };
 
-const modalEls = {
-  btn: document.getElementById("linkOrgBtn"),
-  pill: document.getElementById("linkOrgPill"),
-  modal: document.getElementById("linkOrgModal"),
-  sandboxCard: document.getElementById("sandboxCard"),
-  sandboxName: document.getElementById("sandboxName"),
-  sandboxBase: document.getElementById("sandboxBase"),
-  sandboxOrg: document.getElementById("sandboxOrg"),
-  sandboxNet: document.getElementById("sandboxNet"),
-  sandboxKey: document.getElementById("sandboxKey"),
-  sandboxPill: document.getElementById("sandboxPill"),
-  useSandboxBtn: document.getElementById("useSandboxBtn"),
-  byokCard: document.getElementById("byokCard"),
-  byokKey: document.getElementById("byokKey"),
-  byokOrg: document.getElementById("byokOrg"),
-  byokNet: document.getElementById("byokNet"),
-  byokPill: document.getElementById("byokPill"),
-  saveByokBtn: document.getElementById("saveByokBtn"),
-  clearByokBtn: document.getElementById("clearByokBtn"),
-};
-
-function loadByok() {
+function loadOverrides() {
   try {
-    const raw = localStorage.getItem(BYOK_KEY);
+    const raw = localStorage.getItem(OVERRIDES_KEY);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -866,57 +843,76 @@ function loadByok() {
   }
 }
 
-function saveByok() {
-  if (linkOrg.byokKey) {
-    localStorage.setItem(
-      BYOK_KEY,
-      JSON.stringify({
-        key: linkOrg.byokKey,
-        org: linkOrg.byokOrg,
-        net: linkOrg.byokNet,
-      }),
-    );
-  } else {
-    localStorage.removeItem(BYOK_KEY);
-  }
+function saveOverridesToStorage() {
+  try {
+    localStorage.setItem(OVERRIDES_KEY, JSON.stringify(linkOrg.overrides));
+  } catch {}
 }
 
-function applyLinkState() {
-  const devLinked = Boolean(linkOrg.info?.hasServerKey);
-  const prodLinked = Boolean(linkOrg.byokKey);
+function slotDefaults(envName) {
+  const orgId = linkOrg.info?.orgId ?? "";
+  const slot = linkOrg.info?.slots?.[envName] ?? {};
+  return {
+    org: orgId,
+    net: slot.networkId ?? "",
+  };
+}
 
-  // Top button pill: hidden in default DEV-only state, shown for PROD or missing
-  if (!devLinked && !prodLinked) {
+function effectiveSlot(envName) {
+  const o = linkOrg.overrides[envName] ?? { key: "", org: "", net: "" };
+  const d = slotDefaults(envName);
+  return {
+    key: o.key || "",
+    org: o.org || d.org,
+    net: o.net || d.net,
+    keyOverridden: Boolean(o.key),
+    orgOverridden: Boolean(o.org),
+    netOverridden: Boolean(o.net),
+  };
+}
+
+const modalEls = {
+  btn: document.getElementById("linkOrgBtn"),
+  pill: document.getElementById("linkOrgPill"),
+  modal: document.getElementById("linkOrgModal"),
+  orgLine: document.getElementById("modalOrgLine"),
+  // DEV card
+  sandboxCard: document.getElementById("sandboxCard"),
+  sandboxName: document.getElementById("sandboxName"),
+  sandboxNetName: document.getElementById("sandboxNetName"),
+  sandboxPill: document.getElementById("sandboxPill"),
+  // PROD card
+  prodCard: document.getElementById("prodCard"),
+  prodName: document.getElementById("prodName"),
+  prodNetName: document.getElementById("prodNetName"),
+  prodPill: document.getElementById("prodPill"),
+};
+
+function applyLinkState() {
+  const dev = linkOrg.info?.slots?.dev;
+  const prod = linkOrg.info?.slots?.prod;
+
+  const devReady = Boolean(dev?.ready);
+  const prodReady = Boolean(prod?.ready);
+
+  // Top button pill — only show when something needs attention
+  if (!devReady && !prodReady) {
     modalEls.pill.hidden = false;
     modalEls.pill.textContent = "set up";
     modalEls.btn.dataset.mode = "missing";
-  } else if (devLinked && prodLinked) {
+  } else if (!prodReady) {
     modalEls.pill.hidden = false;
-    modalEls.pill.textContent = "PROD";
-    modalEls.btn.dataset.mode = "prod";
-  } else if (prodLinked) {
-    modalEls.pill.hidden = false;
-    modalEls.pill.textContent = "PROD";
-    modalEls.btn.dataset.mode = "prod";
+    modalEls.pill.textContent = "PROD missing";
+    modalEls.btn.dataset.mode = "missing";
   } else {
     modalEls.pill.hidden = true;
     modalEls.btn.dataset.mode = "dev";
   }
 
-  // Card linked/active markers
-  modalEls.sandboxCard.dataset.active = devLinked ? "true" : "false";
-  modalEls.byokCard.dataset.active = prodLinked ? "true" : "false";
-  modalEls.sandboxPill.hidden = !devLinked;
-  modalEls.sandboxPill.textContent = "linked";
-  modalEls.byokPill.hidden = !prodLinked;
-  modalEls.byokPill.textContent = "linked";
-
-  // Existing PROD-promote buttons reflect current PROD-link state
-  document.querySelectorAll(".sr-promote").forEach((btn) => {
-    btn.title = prodLinked
-      ? "Run the same call against your PROD org"
-      : "Link a PROD org first";
-  });
+  modalEls.sandboxCard.dataset.active = devReady ? "true" : "false";
+  modalEls.prodCard.dataset.active = prodReady ? "true" : "false";
+  modalEls.sandboxPill.hidden = !devReady;
+  modalEls.prodPill.hidden = !prodReady;
 }
 
 async function fetchSandboxInfo() {
@@ -928,28 +924,58 @@ async function fetchSandboxInfo() {
   }
 
   if (linkOrg.info && !linkOrg.info.error) {
-    modalEls.sandboxName.textContent = linkOrg.info.name ?? "Cisco DevNet Sandbox";
-    modalEls.sandboxBase.textContent = (linkOrg.info.base ?? "").replace(/^https?:\/\//, "");
-    modalEls.sandboxOrg.textContent = linkOrg.info.orgId ?? "—";
-    modalEls.sandboxNet.textContent = linkOrg.info.networkId ?? "—";
-    if (linkOrg.info.hasServerKey) {
-      modalEls.sandboxKey.textContent = "configured";
-      modalEls.sandboxKey.dataset.state = "ok";
-    } else {
-      modalEls.sandboxKey.textContent = "not configured";
-      modalEls.sandboxKey.dataset.state = "missing";
-    }
+    const orgId = linkOrg.info.orgId ?? "—";
+    const dev = linkOrg.info.slots?.dev ?? {};
+    const prod = linkOrg.info.slots?.prod ?? {};
+
+    modalEls.orgLine.textContent =
+      orgId !== "—" ? `Server: org ${orgId} · ${(linkOrg.info.base ?? "").replace(/^https?:\/\//, "")}` : "";
+
+    modalEls.sandboxName.textContent = dev.name ?? "Your development org";
+    modalEls.sandboxNetName.textContent = dev.networkName ?? "—";
+
+    modalEls.prodName.textContent = prod.name ?? "Your production org";
+    modalEls.prodNetName.textContent = prod.networkName ?? "—";
+
+    paintSlotInputs();
   }
 
   applyLinkState();
 }
 
+function inputsForSlot(envName) {
+  return {
+    key: modalEls.modal.querySelector(`input[data-slot="${envName}"][data-field="key"]`),
+    org: modalEls.modal.querySelector(`input[data-slot="${envName}"][data-field="org"]`),
+    net: modalEls.modal.querySelector(`input[data-slot="${envName}"][data-field="net"]`),
+  };
+}
+
+function paintSlotInputs() {
+  for (const envName of ["dev", "prod"]) {
+    const inputs = inputsForSlot(envName);
+    const o = linkOrg.overrides[envName] ?? { key: "", org: "", net: "" };
+    const d = slotDefaults(envName);
+    if (inputs.key) {
+      inputs.key.value = o.key;
+      inputs.key.placeholder = linkOrg.info?.hasServerKey
+        ? "server default (configured)"
+        : "no server key — override required";
+    }
+    if (inputs.org) {
+      inputs.org.value = o.org;
+      inputs.org.placeholder = d.org || "—";
+    }
+    if (inputs.net) {
+      inputs.net.value = o.net;
+      inputs.net.placeholder = d.net || "—";
+    }
+  }
+}
+
 function openLinkModal() {
+  paintSlotInputs();
   modalEls.modal.hidden = false;
-  modalEls.byokKey.value = linkOrg.byokKey;
-  modalEls.byokOrg.value = linkOrg.byokOrg;
-  modalEls.byokNet.value = linkOrg.byokNet;
-  applyLinkState();
 }
 
 function closeLinkModal() {
@@ -964,41 +990,45 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !modalEls.modal.hidden) closeLinkModal();
 });
 
-modalEls.useSandboxBtn.addEventListener("click", () => {
-  closeLinkModal();
+modalEls.modal.querySelectorAll("[data-action='save']").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const envName = btn.dataset.slot;
+    const inputs = inputsForSlot(envName);
+    linkOrg.overrides[envName] = {
+      key: inputs.key.value.trim(),
+      org: inputs.org.value.trim(),
+      net: inputs.net.value.trim(),
+    };
+    saveOverridesToStorage();
+    flashOverride(btn, "saved");
+    applyLinkState();
+  });
 });
 
-modalEls.saveByokBtn.addEventListener("click", () => {
-  const key = modalEls.byokKey.value.trim();
-  if (!key) {
-    modalEls.byokKey.focus();
-    return;
-  }
-  linkOrg.byokKey = key;
-  linkOrg.byokOrg = modalEls.byokOrg.value.trim();
-  linkOrg.byokNet = modalEls.byokNet.value.trim();
-  saveByok();
-  applyLinkState();
-  closeLinkModal();
+modalEls.modal.querySelectorAll("[data-action='reset']").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const envName = btn.dataset.slot;
+    linkOrg.overrides[envName] = { key: "", org: "", net: "" };
+    saveOverridesToStorage();
+    paintSlotInputs();
+    flashOverride(btn, "reset");
+    applyLinkState();
+  });
 });
 
-modalEls.clearByokBtn.addEventListener("click", () => {
-  linkOrg.byokKey = "";
-  linkOrg.byokOrg = "";
-  linkOrg.byokNet = "";
-  modalEls.byokKey.value = "";
-  modalEls.byokOrg.value = "";
-  modalEls.byokNet.value = "";
-  saveByok();
-  applyLinkState();
-});
+function flashOverride(btn, label) {
+  const span = btn.querySelector("span") || btn;
+  const prev = span.textContent;
+  span.textContent = label;
+  setTimeout(() => {
+    span.textContent = prev;
+  }, 1200);
+}
 
-/* Hydrate BYOK from storage */
-const stored = loadByok();
-if (stored?.key) {
-  linkOrg.byokKey = stored.key;
-  linkOrg.byokOrg = stored.org ?? "";
-  linkOrg.byokNet = stored.net ?? "";
+const storedOverrides = loadOverrides();
+if (storedOverrides) {
+  if (storedOverrides.dev) linkOrg.overrides.dev = { key: "", org: "", net: "", ...storedOverrides.dev };
+  if (storedOverrides.prod) linkOrg.overrides.prod = { key: "", org: "", net: "", ...storedOverrides.prod };
 }
 
 fetchSandboxInfo();

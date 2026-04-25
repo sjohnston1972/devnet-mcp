@@ -935,6 +935,14 @@ textarea#input::placeholder {
   font-weight: 500;
 }
 
+.modal-sub .org-line {
+  display: block;
+  margin-top: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 /* ---------------- Link cards ---------------- */
 
 .link-card {

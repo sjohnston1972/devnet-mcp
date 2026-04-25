@@ -150,9 +150,8 @@
           </button>
         </header>
         <p class="modal-sub">
-          Two slots: <strong>DEV</strong> uses the always-on Cisco DevNet Sandbox (server-managed key).
-          <strong>PROD</strong> uses your real production org via BYOK — key stays in your browser.
-          Pick which one Test buttons in chat call against.
+          Two networks in one Meraki org. <strong>DEV</strong> is safe to break. <strong>PROD</strong> is your live config — confirms before each call.
+          <span class="muted org-line" id="modalOrgLine"></span>
         </p>
 
         <section class="link-card" id="sandboxCard" data-env="dev" data-active="true">
@@ -162,65 +161,66 @@
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
             </div>
             <div class="link-card-title">
-              <strong id="sandboxName">Cisco DevNet Sandbox</strong>
-              <span id="sandboxBase" class="muted">api.meraki.com/api/v1</span>
+              <strong id="sandboxName">Your development org</strong>
+              <span id="sandboxNetName" class="muted">—</span>
             </div>
-            <span class="link-pill" id="sandboxPill" data-env="dev">active</span>
+            <span class="link-pill" id="sandboxPill" data-env="dev">linked</span>
           </div>
           <div class="link-card-body">
-            <div class="kv">
+            <label class="field">
+              <span>API key</span>
+              <input data-slot="dev" data-field="key" type="password" autocomplete="off" spellcheck="false" placeholder="server default (configured)" />
+              <small>Leave blank to use the server-managed key. Override here is stored only in this browser.</small>
+            </label>
+            <label class="field">
               <span>Org ID</span>
-              <code id="sandboxOrg">—</code>
-            </div>
-            <div class="kv">
-              <span>Network ID</span>
-              <code id="sandboxNet">—</code>
-            </div>
-            <div class="kv">
-              <span>Server key</span>
-              <span id="sandboxKey" class="kv-status">—</span>
-            </div>
+              <input data-slot="dev" data-field="org" type="text" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="field">
+              <span>Default Network ID</span>
+              <input data-slot="dev" data-field="net" type="text" autocomplete="off" spellcheck="false" />
+            </label>
           </div>
           <div class="link-card-actions">
-            <button class="btn small" type="button" id="useSandboxBtn">Use DEV</button>
-            <a class="btn small ghost" id="sandboxDocs" href="https://developer.cisco.com/meraki/sandbox/" target="_blank" rel="noopener">Sandbox docs ↗</a>
+            <button class="btn small primary" type="button" data-action="save" data-slot="dev">Save DEV overrides</button>
+            <button class="btn small ghost" type="button" data-action="reset" data-slot="dev">Reset to server</button>
           </div>
         </section>
 
-        <section class="link-card" id="byokCard" data-env="prod">
+        <section class="link-card" id="prodCard" data-env="prod" data-active="true">
           <div class="link-card-head">
             <span class="env-badge" data-env="prod">PROD</span>
             <div class="link-card-icon" data-variant="prod">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
             </div>
             <div class="link-card-title">
-              <strong>Your production org</strong>
-              <span class="muted">BYOK — bring your dashboard API key</span>
+              <strong id="prodName">Your production org</strong>
+              <span id="prodNetName" class="muted">—</span>
             </div>
-            <span class="link-pill" id="byokPill" data-env="prod" hidden>active</span>
+            <span class="link-pill" id="prodPill" data-env="prod">linked</span>
           </div>
           <div class="link-card-body">
             <div class="prod-warning" aria-hidden="true">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              Calls go to your real Meraki dashboard. Reads are safe; writes change live config.
+              Calls hit your live Meraki dashboard. Confirm prompt before every PROD push.
             </div>
             <label class="field">
-              <span>Meraki Dashboard API key</span>
-              <input id="byokKey" type="password" autocomplete="off" placeholder="40-char key from dashboard.meraki.com" spellcheck="false" />
-              <small>Stored in this browser's localStorage. Sent only as a header on test calls. Never persisted on the server.</small>
+              <span>API key</span>
+              <input data-slot="prod" data-field="key" type="password" autocomplete="off" spellcheck="false" placeholder="server default (configured)" />
+              <small>Leave blank to use the server-managed key. Override here is stored only in this browser.</small>
             </label>
             <label class="field">
-              <span>Default org ID <span class="muted">(optional, substitutes <code>{organizationId}</code>)</span></span>
-              <input id="byokOrg" type="text" autocomplete="off" placeholder="e.g. 549236" spellcheck="false" />
+              <span>Org ID</span>
+              <input data-slot="prod" data-field="org" type="text" autocomplete="off" spellcheck="false" />
             </label>
             <label class="field">
-              <span>Default network ID <span class="muted">(optional, substitutes <code>{networkId}</code>)</span></span>
-              <input id="byokNet" type="text" autocomplete="off" placeholder="e.g. L_xxxxxxxxxxxxxxx" spellcheck="false" />
+              <span>Default Network ID</span>
+              <input data-slot="prod" data-field="net" type="text" autocomplete="off" spellcheck="false" />
             </label>
           </div>
           <div class="link-card-actions">
-            <button class="btn small primary" type="button" id="saveByokBtn">Save &amp; use PROD</button>
-            <button class="btn small ghost danger" type="button" id="clearByokBtn">Unlink PROD</button>
+            <button class="btn small primary" type="button" data-action="save" data-slot="prod">Save PROD overrides</button>
+            <button class="btn small ghost" type="button" data-action="reset" data-slot="prod">Reset to server</button>
           </div>
         </section>
       </div>

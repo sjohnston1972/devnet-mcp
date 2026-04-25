@@ -4,11 +4,14 @@ interface Env {
   MCP_URL: string;
   AI_MODEL: string;
   MERAKI_SANDBOX_API_KEY?: string;
-  MERAKI_SANDBOX_NAME?: string;
   MERAKI_SANDBOX_BASE?: string;
   MERAKI_SANDBOX_ORG_ID?: string;
-  MERAKI_SANDBOX_NETWORK_ID?: string;
-  MERAKI_SANDBOX_DEVICE_SERIAL?: string;
+  MERAKI_DEV_NAME?: string;
+  MERAKI_DEV_NETWORK_ID?: string;
+  MERAKI_DEV_NETWORK_NAME?: string;
+  MERAKI_PROD_NAME?: string;
+  MERAKI_PROD_NETWORK_ID?: string;
+  MERAKI_PROD_NETWORK_NAME?: string;
 }
 
 interface ChatMessage {
@@ -61,38 +64,63 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 const SANDBOX_BASE_DEFAULT = "https://api.meraki.com/api/v1";
-const SANDBOX_NAME_DEFAULT = "Cisco DevNet Always-On Sandbox";
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH"]);
 
-function sandboxConfig(env: Env) {
+interface MerakiSlot {
+  name: string;
+  networkId: string;
+  networkName: string;
+}
+
+function merakiBase(env: Env): string {
+  return (env.MERAKI_SANDBOX_BASE || SANDBOX_BASE_DEFAULT).replace(/\/$/, "");
+}
+
+function merakiOrgId(env: Env): string {
+  return env.MERAKI_SANDBOX_ORG_ID || "";
+}
+
+function devSlot(env: Env): MerakiSlot {
   return {
-    name: env.MERAKI_SANDBOX_NAME || SANDBOX_NAME_DEFAULT,
-    base: (env.MERAKI_SANDBOX_BASE || SANDBOX_BASE_DEFAULT).replace(/\/$/, ""),
-    orgId: env.MERAKI_SANDBOX_ORG_ID || "",
-    networkId: env.MERAKI_SANDBOX_NETWORK_ID || "",
-    serial: env.MERAKI_SANDBOX_DEVICE_SERIAL || "",
-    hasKey: Boolean(env.MERAKI_SANDBOX_API_KEY),
+    name: env.MERAKI_DEV_NAME || "Development",
+    networkId: env.MERAKI_DEV_NETWORK_ID || "",
+    networkName: env.MERAKI_DEV_NETWORK_NAME || "",
+  };
+}
+
+function prodSlot(env: Env): MerakiSlot {
+  return {
+    name: env.MERAKI_PROD_NAME || "Production",
+    networkId: env.MERAKI_PROD_NETWORK_ID || "",
+    networkName: env.MERAKI_PROD_NETWORK_NAME || "",
   };
 }
 
 async function handleSandboxInfo(env: Env): Promise<Response> {
-  const cfg = sandboxConfig(env);
+  const orgId = merakiOrgId(env);
+  const dev = devSlot(env);
+  const prod = prodSlot(env);
+  const hasServerKey = Boolean(env.MERAKI_SANDBOX_API_KEY);
+
   return Response.json(
     {
-      name: cfg.name,
-      base: cfg.base,
-      orgId: cfg.orgId || null,
-      networkId: cfg.networkId || null,
-      serial: cfg.serial || null,
-      hasServerKey: cfg.hasKey,
-      placeholders: {
-        "{organizationId}": cfg.orgId || null,
-        "{orgId}": cfg.orgId || null,
-        "{networkId}": cfg.networkId || null,
-        "{netId}": cfg.networkId || null,
-        "{serial}": cfg.serial || null,
+      base: merakiBase(env),
+      orgId: orgId || null,
+      hasServerKey,
+      slots: {
+        dev: {
+          name: dev.name,
+          networkId: dev.networkId || null,
+          networkName: dev.networkName || null,
+          ready: hasServerKey && Boolean(orgId) && Boolean(dev.networkId),
+        },
+        prod: {
+          name: prod.name,
+          networkId: prod.networkId || null,
+          networkName: prod.networkName || null,
+          ready: hasServerKey && Boolean(orgId) && Boolean(prod.networkId),
+        },
       },
-      docsUrl: "https://developer.cisco.com/meraki/sandbox/",
     },
     { headers: { "cache-control": "no-store" } },
   );
@@ -102,6 +130,7 @@ interface SandboxCallBody {
   method?: string;
   path?: string;
   body?: unknown;
+  env?: "dev" | "prod";
 }
 
 async function handleSandboxCall(request: Request, env: Env): Promise<Response> {
@@ -121,7 +150,9 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
     return Response.json({ error: "path is required" }, { status: 400 });
   }
 
-  const cfg = sandboxConfig(env);
+  const targetEnv: "dev" | "prod" = payload.env === "prod" ? "prod" : "dev";
+  const slot = targetEnv === "prod" ? prodSlot(env) : devSlot(env);
+
   const userKey = request.headers.get("x-user-meraki-key")?.trim();
   const userOrg = request.headers.get("x-user-meraki-org")?.trim();
   const userNet = request.headers.get("x-user-meraki-network")?.trim();
@@ -131,15 +162,14 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
     return Response.json(
       {
         error:
-          "no Meraki API key configured. Set MERAKI_SANDBOX_API_KEY via `wrangler secret put`, or paste your own key in the Link Org panel.",
+          "no Meraki API key configured. Set MERAKI_SANDBOX_API_KEY via `wrangler secret put`.",
       },
       { status: 503 },
     );
   }
 
-  // BYOK: prefer user-provided org/network IDs over server sandbox values
-  const orgId = userKey ? (userOrg || cfg.orgId) : cfg.orgId;
-  const netId = userKey ? (userNet || cfg.networkId) : cfg.networkId;
+  const orgId = userOrg || merakiOrgId(env);
+  const netId = userNet || slot.networkId;
 
   const placeholders: Record<string, string> = {};
   if (orgId) {
@@ -149,9 +179,6 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
   if (netId) {
     placeholders["{networkId}"] = netId;
     placeholders["{netId}"] = netId;
-  }
-  if (cfg.serial && !userKey) {
-    placeholders["{serial}"] = cfg.serial;
   }
 
   const { resolvedPath, missing } = resolvePath(payload.path, placeholders);
@@ -172,7 +199,7 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
     );
   }
 
-  const targetUrl = cfg.base + resolvedPath.replace(/^\/api\/v1/, "").replace(/^\/v1/, "");
+  const targetUrl = merakiBase(env) + resolvedPath.replace(/^\/api\/v1/, "").replace(/^\/v1/, "");
   const sentAt = Date.now();
 
   const init: RequestInit = {
@@ -224,7 +251,8 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
     headers: interestingHeaders,
     body: respBody,
     usedUserKey: Boolean(userKey),
-    env: userKey ? "prod" : "dev",
+    env: targetEnv,
+    networkId: netId || null,
   });
 }
 
