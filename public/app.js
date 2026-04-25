@@ -107,35 +107,32 @@ const MERAKI_PATH_HINTS = [
 ];
 
 /**
- * LLMs love to bake literal example IDs into snippets (N_123456789, L_xxxx,
- * 549236, YOUR_NETWORK_ID, <networkId>, etc). Those hit nothing real and
- * 404. Rewrite anything that *looks* like a fake to the proper template
- * placeholder so the worker substitutes the user's actual DEV/PROD value.
+ * Deterministic Meraki path normalizer. Meraki URLs follow a strict
+ * resource/{id}/sub-resource pattern, so we don't need to guess what
+ * counts as an "example ID" — the segment after a known resource name
+ * IS the ID for that resource. Force every such segment to its
+ * placeholder unless it already is one. The runtime then substitutes
+ * the user's linked DEV/PROD value.
+ *
+ *   /organizations/{X}/...  → X becomes {organizationId}
+ *   /networks/{X}/...       → X becomes {networkId}
+ *   /devices/{X}/...        → X becomes {serial}
+ *
+ * Already-templated segments ({networkId}, {organization_id}, etc.)
+ * are left untouched.
  */
-function normalizeExampleIds(path) {
-  return (
-    path
-      // Network IDs: N_/L_ + sequential digits or x-padding
-      .replace(/[NL]_(?:1234567890?|123456789|0+|x{4,})\b/gi, "{networkId}")
-      // Network IDs: any all-same-digit run after N_/L_ (e.g. N_111111111)
-      .replace(/[NL]_(\d)\1{6,}\b/g, "{networkId}")
-      // Org IDs: classic example sequences sitting after /organizations/
-      .replace(
-        /\/organizations\/(?:1234567890?|123456789|0{6,}|9{6,})\b/g,
-        "/organizations/{organizationId}",
-      )
-      // Angle-bracket templates: <networkId>, <organizationId>, <serial>
-      .replace(/<\s*networkId\s*>/gi, "{networkId}")
-      .replace(/<\s*organizationId\s*>/gi, "{organizationId}")
-      .replace(/<\s*orgId\s*>/gi, "{organizationId}")
-      .replace(/<\s*serial\s*>/gi, "{serial}")
-      // YOUR_NETWORK_ID / your-network-id / your_org_id etc.
-      .replace(/\byour[_-]?network[_-]?id\b/gi, "{networkId}")
-      .replace(/\byour[_-]?org(?:anization)?[_-]?id\b/gi, "{organizationId}")
-      // ALL_CAPS NETWORK_ID / ORG_ID literals
-      .replace(/\bNETWORK_ID\b/g, "{networkId}")
-      .replace(/\bORG(?:ANIZATION)?_ID\b/g, "{organizationId}")
-  );
+function normalizeMerakiPath(path) {
+  // Strip query before substituting to avoid touching values inside
+  const qIdx = path.indexOf("?");
+  const query = qIdx >= 0 ? path.slice(qIdx) : "";
+  let base = qIdx >= 0 ? path.slice(0, qIdx) : path;
+
+  base = base
+    .replace(/\/organizations\/(?!\{)[^/]+/g, "/organizations/{organizationId}")
+    .replace(/\/networks\/(?!\{)[^/]+/g, "/networks/{networkId}")
+    .replace(/\/devices\/(?!\{)[^/]+/g, "/devices/{serial}");
+
+  return base + query;
 }
 
 function detectMerakiCall(text) {
@@ -157,8 +154,6 @@ function detectMerakiCall(text) {
   }
 
   if (!path) return null;
-
-  path = normalizeExampleIds(path);
 
   if (!path.startsWith("/api/v1") && !path.startsWith("/v1")) {
     if (MERAKI_PATH_HINTS.some((re) => re.test(path))) {
@@ -208,13 +203,17 @@ function makeTestBtn(call, preEl) {
 }
 
 async function runPush(call, preEl, env, triggerBtn) {
+  // Rewrite path placeholders BEFORE anything else so the prod confirm
+  // dialog and the response panel both reflect what will actually be sent.
+  const normalizedCall = { ...call, path: normalizeMerakiPath(call.path) };
+
   if (env === "prod") {
     const prodReady = Boolean(linkOrg.info?.slots?.prod?.ready);
     if (!prodReady) {
       openLinkModal();
       return;
     }
-    const ok = await confirmProdPush(call);
+    const ok = await confirmProdPush(normalizedCall);
     if (!ok) return;
   }
 
@@ -245,14 +244,14 @@ async function runPush(call, preEl, env, triggerBtn) {
     const r = await fetch("/api/sandbox-call", {
       method: "POST",
       headers,
-      body: JSON.stringify({ ...call, env }),
+      body: JSON.stringify({ ...normalizedCall, env }),
     });
     const data = await r.json();
-    renderSandboxResponse(preEl, call, data, r.status, env);
+    renderSandboxResponse(preEl, normalizedCall, data, r.status, env);
   } catch (err) {
     renderSandboxResponse(
       preEl,
-      call,
+      normalizedCall,
       { error: err?.message ?? String(err) },
       0,
       env,
