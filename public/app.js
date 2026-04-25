@@ -451,6 +451,7 @@ function showWelcome() {
       <p>Connected live to Cisco's DevNet MCP server. Replies cite real operation IDs and doc URLs.</p>
       <div class="suggestions">
         <button class="chip">Show L3 firewall rules config for Meraki</button>
+        <button class="chip">Create L3 firewall rules config for Meraki</button>
         <button class="chip">Find OAuth setup for Meraki APIs</button>
         <button class="chip">Catalyst Center device inventory APIs</button>
         <button class="chip">Spec for createNetworkMerakiAuthUser</button>
