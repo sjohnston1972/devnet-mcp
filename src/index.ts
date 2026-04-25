@@ -171,17 +171,7 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
   const orgId = userOrg || merakiOrgId(env);
   const netId = userNet || slot.networkId;
 
-  const placeholders: Record<string, string> = {};
-  if (orgId) {
-    placeholders["{organizationId}"] = orgId;
-    placeholders["{orgId}"] = orgId;
-  }
-  if (netId) {
-    placeholders["{networkId}"] = netId;
-    placeholders["{netId}"] = netId;
-  }
-
-  const { resolvedPath, missing } = resolvePath(payload.path, placeholders);
+  const { resolvedPath, missing } = resolvePath(payload.path, { orgId, netId });
   if (missing.length > 0) {
     return Response.json(
       {
@@ -258,7 +248,7 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
 
 function resolvePath(
   rawPath: string,
-  placeholders: Record<string, string>,
+  values: { orgId?: string; netId?: string; serial?: string },
 ): { resolvedPath: string; missing: string[] } {
   let path = rawPath.trim();
   // Drop fully-qualified URLs
@@ -269,11 +259,26 @@ function resolvePath(
   const query = qIdx >= 0 ? path.slice(qIdx) : "";
   let basePath = qIdx >= 0 ? path.slice(0, qIdx) : path;
 
-  for (const [token, value] of Object.entries(placeholders)) {
-    if (value) basePath = basePath.split(token).join(value);
-  }
+  // Normalize token to lowercase + strip underscores so {organization_id},
+  // {organizationId}, {OrganizationID}, {ORG_ID} all resolve.
+  basePath = basePath.replace(
+    /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g,
+    (full, token: string) => {
+      const norm = token.toLowerCase().replace(/_/g, "");
+      if ((norm === "organizationid" || norm === "orgid") && values.orgId) {
+        return values.orgId;
+      }
+      if ((norm === "networkid" || norm === "netid") && values.netId) {
+        return values.netId;
+      }
+      if ((norm === "serial" || norm === "deviceserial") && values.serial) {
+        return values.serial;
+      }
+      return full;
+    },
+  );
 
-  const missingMatches = basePath.match(/\{[a-zA-Z][a-zA-Z0-9_]*\}/g) ?? [];
+  const missingMatches = basePath.match(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g) ?? [];
   const missing = [...new Set(missingMatches)];
 
   return { resolvedPath: basePath + query, missing };
