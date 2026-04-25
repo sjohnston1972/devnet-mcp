@@ -372,11 +372,166 @@ function clearChat() {
 }
 
 function flashStatus(text) {
-  const el = els.status.querySelector(".status-text");
-  const prev = el.textContent;
-  el.textContent = text;
-  setTimeout(() => (el.textContent = prev), 1400);
+  /* no-op: status pill now drives MCP health, transient toasts replaced by inline UI */
+  console.log("[status]", text);
 }
+
+/* --------- MCP health --------- */
+
+const DEGRADED_MS = 2500;
+const POLL_MS = 60_000;
+
+const health = {
+  el: els.status,
+  popover: document.getElementById("healthPopover"),
+  refreshBtn: document.getElementById("hpRefresh"),
+  state: document.getElementById("hpState"),
+  endpoint: document.getElementById("hpEndpoint"),
+  latency: document.getElementById("hpLatency"),
+  toolCount: document.getElementById("hpToolCount"),
+  tools: document.getElementById("hpTools"),
+  checked: document.getElementById("hpChecked"),
+  error: document.getElementById("hpError"),
+  dot: els.status.querySelector(".dot"),
+  text: els.status.querySelector(".status-text"),
+};
+
+let healthTimer = null;
+let healthInflight = false;
+let lastHealth = null;
+
+const STATE_LABEL = {
+  connected: "Connected",
+  degraded: "Degraded",
+  offline: "Offline",
+  checking: "Checking…",
+};
+
+function setHealthState(state, data) {
+  ["connected", "degraded", "offline", "checking"].forEach((s) => {
+    health.el.classList.toggle(s, s === state);
+    health.popover.classList.toggle(s, s === state);
+  });
+  health.text.textContent = state === "checking" ? "checking" : state;
+  health.state.textContent = STATE_LABEL[state] ?? state;
+
+  if (data) {
+    health.endpoint.textContent = "devnet.cisco.com/v1/foundation-search-mcp";
+    health.latency.textContent =
+      typeof data.latencyMs === "number" ? `${data.latencyMs} ms` : "—";
+    const tools = Array.isArray(data.tools) ? data.tools : [];
+    health.toolCount.textContent = tools.length
+      ? `${tools.length} available`
+      : data.toolCount
+        ? `${data.toolCount} available`
+        : "—";
+    health.tools.innerHTML = "";
+    tools.forEach((t) => {
+      const li = document.createElement("li");
+      li.textContent = t;
+      health.tools.appendChild(li);
+    });
+    health.checked.textContent = data.checkedAt
+      ? formatRelative(new Date(data.checkedAt))
+      : "—";
+
+    if (data.error) {
+      health.error.hidden = false;
+      health.error.textContent = data.error;
+    } else {
+      health.error.hidden = true;
+      health.error.textContent = "";
+    }
+  }
+
+  const verb = state === "connected" ? "MCP connected" : state === "degraded" ? "MCP degraded" : state === "offline" ? "MCP offline" : "Checking MCP…";
+  health.el.title = data?.latencyMs ? `${verb} · ${data.latencyMs}ms` : verb;
+  health.el.setAttribute("aria-expanded", health.popover.hidden ? "false" : "true");
+}
+
+function formatRelative(date) {
+  const diff = Math.max(0, Date.now() - date.getTime());
+  if (diff < 5_000) return "just now";
+  if (diff < 60_000) return `${Math.round(diff / 1000)}s ago`;
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
+  return date.toLocaleTimeString();
+}
+
+async function checkMcpHealth() {
+  if (healthInflight) return;
+  healthInflight = true;
+  health.refreshBtn.classList.add("spinning");
+  if (!lastHealth) setHealthState("checking");
+
+  try {
+    const r = await fetch("/api/mcp-status", { cache: "no-store" });
+    const data = await r.json();
+    lastHealth = data;
+
+    let state;
+    if (!data.ok) state = "offline";
+    else if ((data.latencyMs ?? 0) > DEGRADED_MS) state = "degraded";
+    else state = "connected";
+
+    setHealthState(state, data);
+  } catch (err) {
+    lastHealth = {
+      ok: false,
+      error: err?.message ?? String(err),
+      checkedAt: new Date().toISOString(),
+    };
+    setHealthState("offline", lastHealth);
+  } finally {
+    healthInflight = false;
+    health.refreshBtn.classList.remove("spinning");
+  }
+}
+
+function startHealthPolling() {
+  if (healthTimer) return;
+  checkMcpHealth();
+  healthTimer = setInterval(() => {
+    if (document.visibilityState === "visible") checkMcpHealth();
+  }, POLL_MS);
+}
+
+function togglePopover(force) {
+  const willShow = typeof force === "boolean" ? force : health.popover.hidden;
+  health.popover.hidden = !willShow;
+  health.el.setAttribute("aria-expanded", willShow ? "true" : "false");
+  if (willShow && lastHealth) {
+    health.checked.textContent = lastHealth.checkedAt
+      ? formatRelative(new Date(lastHealth.checkedAt))
+      : "—";
+  }
+}
+
+health.el.addEventListener("click", (e) => {
+  e.stopPropagation();
+  togglePopover();
+});
+
+health.refreshBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  checkMcpHealth();
+});
+
+document.addEventListener("click", (e) => {
+  if (health.popover.hidden) return;
+  if (!health.popover.contains(e.target) && !health.el.contains(e.target)) {
+    togglePopover(false);
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !health.popover.hidden) togglePopover(false);
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkMcpHealth();
+});
+
+startHealthPolling();
 
 /* --------- storage --------- */
 

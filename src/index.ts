@@ -34,6 +34,10 @@ export default {
       return handleChat(request, env);
     }
 
+    if (url.pathname === "/api/mcp-status") {
+      return handleMcpStatus(env);
+    }
+
     if (url.pathname === "/api/health") {
       return Response.json({ ok: true, model: env.AI_MODEL });
     }
@@ -41,6 +45,60 @@ export default {
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
+
+async function handleMcpStatus(env: Env): Promise<Response> {
+  const checkedAt = new Date().toISOString();
+  const start = Date.now();
+
+  try {
+    const session = await openMcpSession(env.MCP_URL);
+    const initLatency = Date.now() - start;
+
+    const listStart = Date.now();
+    const listRes = await mcpRequest(env.MCP_URL, session, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    });
+    const listLatency = Date.now() - listStart;
+
+    const tools =
+      (listRes?.result as { tools?: Array<{ name?: string }> } | undefined)?.tools
+        ?.map((t) => t.name)
+        .filter((n): n is string => typeof n === "string") ?? [];
+
+    const totalLatency = Date.now() - start;
+
+    return Response.json(
+      {
+        ok: tools.length > 0,
+        checkedAt,
+        latencyMs: totalLatency,
+        initLatencyMs: initLatency,
+        listLatencyMs: listLatency,
+        tools,
+        toolCount: tools.length,
+      },
+      {
+        headers: { "cache-control": "no-store" },
+      },
+    );
+  } catch (err) {
+    return Response.json(
+      {
+        ok: false,
+        checkedAt,
+        latencyMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      {
+        status: 200,
+        headers: { "cache-control": "no-store" },
+      },
+    );
+  }
+}
 
 async function handleChat(request: Request, env: Env): Promise<Response> {
   let body: ChatRequest;
@@ -105,19 +163,17 @@ interface McpToolResult {
   error?: string;
 }
 
-async function callMcpTool(
-  mcpUrl: string,
-  toolName: string,
-  args: Record<string, unknown>,
-): Promise<McpToolResult> {
-  const sessionHeaders: Record<string, string> = {
+type McpSession = Record<string, string>;
+
+async function openMcpSession(mcpUrl: string): Promise<McpSession> {
+  const headers: McpSession = {
     "content-type": "application/json",
     accept: "application/json, text/event-stream",
   };
 
   const initRes = await fetch(mcpUrl, {
     method: "POST",
-    headers: sessionHeaders,
+    headers,
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
@@ -125,20 +181,24 @@ async function callMcpTool(
       params: {
         protocolVersion: "2024-11-05",
         capabilities: {},
-        clientInfo: { name: "devnet-chat", version: "0.1.0" },
+        clientInfo: { name: "devnet-mcp", version: "0.1.0" },
       },
     }),
   });
 
+  if (!initRes.ok) {
+    throw new Error(`initialize failed: HTTP ${initRes.status}`);
+  }
+
   const sessionId = initRes.headers.get("mcp-session-id");
-  if (sessionId) sessionHeaders["mcp-session-id"] = sessionId;
+  if (sessionId) headers["mcp-session-id"] = sessionId;
 
   await readMcpBody(initRes);
 
   if (sessionId) {
     await fetch(mcpUrl, {
       method: "POST",
-      headers: sessionHeaders,
+      headers,
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "notifications/initialized",
@@ -147,18 +207,37 @@ async function callMcpTool(
     }).catch(() => {});
   }
 
-  const callRes = await fetch(mcpUrl, {
-    method: "POST",
-    headers: sessionHeaders,
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: toolName, arguments: args },
-    }),
-  });
+  return headers;
+}
 
-  const parsed = await readMcpBody(callRes);
+async function mcpRequest(
+  mcpUrl: string,
+  session: McpSession,
+  payload: Record<string, unknown>,
+): Promise<{ result?: unknown; error?: { message?: string } } | null> {
+  const res = await fetch(mcpUrl, {
+    method: "POST",
+    headers: session,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`MCP request failed: HTTP ${res.status}`);
+  }
+  return readMcpBody(res);
+}
+
+async function callMcpTool(
+  mcpUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<McpToolResult> {
+  const session = await openMcpSession(mcpUrl);
+  const parsed = await mcpRequest(mcpUrl, session, {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: { name: toolName, arguments: args },
+  });
   return (parsed?.result as McpToolResult) ?? { error: "no result" };
 }
 

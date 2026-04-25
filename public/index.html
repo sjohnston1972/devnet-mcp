@@ -42,9 +42,27 @@
             <span class="subtitle">Cisco MCP · Meraki + Catalyst Center</span>
           </div>
         </div>
-        <div class="status" id="status">
-          <span class="dot"></span>
-          <span class="status-text">connected</span>
+        <div class="health-wrap">
+          <button class="status checking" id="status" type="button" aria-haspopup="true" aria-expanded="false" title="MCP health">
+            <span class="dot"></span>
+            <span class="status-label">MCP Health</span>
+            <span class="status-text">checking</span>
+          </button>
+          <div class="health-popover" id="healthPopover" role="dialog" aria-label="MCP health details" hidden>
+            <div class="hp-row hp-title">
+              <span class="hp-state-dot"></span>
+              <strong id="hpState">Checking…</strong>
+              <button class="hp-refresh" id="hpRefresh" type="button" title="Refresh">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              </button>
+            </div>
+            <div class="hp-row"><span class="hp-key">Endpoint</span><code class="hp-val" id="hpEndpoint">devnet.cisco.com</code></div>
+            <div class="hp-row"><span class="hp-key">Latency</span><span class="hp-val" id="hpLatency">—</span></div>
+            <div class="hp-row"><span class="hp-key">Tools</span><span class="hp-val" id="hpToolCount">—</span></div>
+            <ul class="hp-tools" id="hpTools"></ul>
+            <div class="hp-row hp-footer"><span class="hp-key">Last checked</span><span class="hp-val" id="hpChecked">—</span></div>
+            <div class="hp-error" id="hpError" hidden></div>
+          </div>
         </div>
         <div class="actions">
           <button class="btn ghost" id="exportBtn" title="Export chat as Markdown">
