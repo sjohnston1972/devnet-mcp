@@ -980,6 +980,11 @@ function openLinkModal() {
 
 function closeLinkModal() {
   modalEls.modal.hidden = true;
+  modalEls.modal.querySelectorAll(".slot-test-result").forEach((el) => {
+    el.hidden = true;
+    el.removeAttribute("data-state");
+    el.textContent = "";
+  });
 }
 
 modalEls.btn.addEventListener("click", openLinkModal);
@@ -1015,6 +1020,80 @@ modalEls.modal.querySelectorAll("[data-action='reset']").forEach((btn) => {
     applyLinkState();
   });
 });
+
+modalEls.modal.querySelectorAll("[data-action='test']").forEach((btn) => {
+  btn.addEventListener("click", () => testSlotConnection(btn));
+});
+
+async function testSlotConnection(btn) {
+  if (btn.classList.contains("running")) return;
+  const envName = btn.dataset.slot;
+  const resultEl = modalEls.modal.querySelector(
+    `.slot-test-result[data-slot="${envName}"]`,
+  );
+
+  // Pull the current input values (live, not yet saved) so the user can
+  // verify edits before saving them.
+  const inputs = inputsForSlot(envName);
+  const liveOverrides = {
+    key: inputs.key.value.trim(),
+    org: inputs.org.value.trim(),
+    net: inputs.net.value.trim(),
+  };
+
+  btn.classList.add("running");
+  setSlotResult(resultEl, "checking", "checking…");
+
+  try {
+    const headers = { "content-type": "application/json" };
+    if (liveOverrides.key) headers["x-user-meraki-key"] = liveOverrides.key;
+    if (liveOverrides.org) headers["x-user-meraki-org"] = liveOverrides.org;
+    if (liveOverrides.net) headers["x-user-meraki-network"] = liveOverrides.net;
+
+    const r = await fetch("/api/sandbox-call", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        env: envName,
+        method: "GET",
+        path: "/api/v1/networks/{networkId}",
+      }),
+    });
+    const data = await r.json();
+
+    if (data.ok && data.body && typeof data.body === "object") {
+      const name = data.body.name ?? data.networkId;
+      setSlotResult(
+        resultEl,
+        "ok",
+        `200 OK · ${name} · ${data.elapsedMs ?? "?"} ms`,
+      );
+    } else if (data.error) {
+      setSlotResult(resultEl, "err", data.error);
+    } else {
+      const status = data.status ? `${data.status} ${data.statusText ?? ""}`.trim() : "error";
+      const detail =
+        typeof data.body === "object" && data.body?.errors
+          ? data.body.errors.join("; ")
+          : typeof data.body === "string"
+            ? data.body.slice(0, 120)
+            : status;
+      setSlotResult(resultEl, "err", `${status} · ${detail}`);
+    }
+  } catch (err) {
+    setSlotResult(resultEl, "err", err?.message ?? String(err));
+  } finally {
+    btn.classList.remove("running");
+  }
+}
+
+function setSlotResult(el, state, detail) {
+  if (!el) return;
+  el.hidden = false;
+  el.dataset.state = state;
+  el.innerHTML = `<span class="stres-dot"></span><span class="stres-detail"></span>`;
+  el.querySelector(".stres-detail").textContent = detail;
+}
 
 function flashOverride(btn, label) {
   const span = btn.querySelector("span") || btn;

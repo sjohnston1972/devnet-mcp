@@ -150,7 +150,7 @@
           </button>
         </header>
         <p class="modal-sub">
-          Two networks in one Meraki org. <strong>DEV</strong> is safe to break. <strong>PROD</strong> is your live config — confirms before each call.
+          <strong>DEV</strong> uses your non production environment. <strong>PROD</strong> is your live config — confirms before each call.
           <span class="muted org-line" id="modalOrgLine"></span>
         </p>
 
@@ -181,7 +181,12 @@
               <input data-slot="dev" data-field="net" type="text" autocomplete="off" spellcheck="false" />
             </label>
           </div>
+          <div class="slot-test-result" data-slot="dev" hidden></div>
           <div class="link-card-actions">
+            <button class="btn small" type="button" data-action="test" data-slot="dev">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Test connection</span>
+            </button>
             <button class="btn small primary" type="button" data-action="save" data-slot="dev">Save DEV overrides</button>
             <button class="btn small ghost" type="button" data-action="reset" data-slot="dev">Reset to server</button>
           </div>
@@ -218,7 +223,12 @@
               <input data-slot="prod" data-field="net" type="text" autocomplete="off" spellcheck="false" />
             </label>
           </div>
+          <div class="slot-test-result" data-slot="prod" hidden></div>
           <div class="link-card-actions">
+            <button class="btn small" type="button" data-action="test" data-slot="prod">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Test connection</span>
+            </button>
             <button class="btn small primary" type="button" data-action="save" data-slot="prod">Save PROD overrides</button>
             <button class="btn small ghost" type="button" data-action="reset" data-slot="prod">Reset to server</button>
           </div>
