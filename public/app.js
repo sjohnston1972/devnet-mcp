@@ -885,19 +885,21 @@ function applyLinkState() {
   const devLinked = Boolean(linkOrg.info?.hasServerKey);
   const prodLinked = Boolean(linkOrg.byokKey);
 
-  // Top button pill: shows what's linked
-  modalEls.pill.hidden = false;
+  // Top button pill: hidden in default DEV-only state, shown for PROD or missing
   if (!devLinked && !prodLinked) {
+    modalEls.pill.hidden = false;
     modalEls.pill.textContent = "set up";
     modalEls.btn.dataset.mode = "missing";
   } else if (devLinked && prodLinked) {
-    modalEls.pill.textContent = "DEV / PROD";
+    modalEls.pill.hidden = false;
+    modalEls.pill.textContent = "PROD";
     modalEls.btn.dataset.mode = "prod";
   } else if (prodLinked) {
+    modalEls.pill.hidden = false;
     modalEls.pill.textContent = "PROD";
     modalEls.btn.dataset.mode = "prod";
   } else {
-    modalEls.pill.textContent = "DEV";
+    modalEls.pill.hidden = true;
     modalEls.btn.dataset.mode = "dev";
   }
 
