@@ -880,6 +880,134 @@ textarea#input::placeholder {
   animation: modalIn 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
 
+.modal-card--narrow {
+  width: min(460px, 92vw);
+  padding: 20px;
+}
+
+.modal-head h3 .env-badge--inline {
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.prod-warning--strong {
+  background: rgba(255, 159, 67, 0.08);
+  border-color: rgba(255, 159, 67, 0.4);
+  color: #ffd0a3;
+  font-size: 12.5px;
+  margin: 4px 0 14px;
+}
+
+.prod-call-summary {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 13px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pcs-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.pcs-label {
+  flex: 0 0 56px;
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pcs-value {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.pcs-method {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: rgba(0, 188, 235, 0.14);
+  color: var(--meraki-cyan-2);
+  border: 1px solid rgba(0, 188, 235, 0.32);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.pcs-path {
+  flex: 1;
+  word-break: break-all;
+  color: var(--text);
+}
+
+.pcs-net {
+  color: #ffb874;
+  font-weight: 500;
+}
+
+.pcs-id {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+.cr-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  margin-bottom: 12px;
+  background: rgba(0, 188, 235, 0.06);
+  border: 1px solid rgba(0, 188, 235, 0.28);
+  border-radius: 8px;
+  color: var(--meraki-cyan-2);
+  font-size: 11.5px;
+  animation: rise 0.18s ease;
+}
+
+.cr-notice svg {
+  flex-shrink: 0;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.modal-actions--prod {
+  margin-top: 4px;
+}
+
+.btn.primary--prod {
+  background: linear-gradient(135deg, #ffb874, #f5a040);
+  color: #2a1a05;
+  box-shadow: 0 4px 14px rgba(255, 159, 67, 0.32);
+}
+
+.btn.primary--prod:hover {
+  filter: brightness(1.06);
+}
+
 @keyframes modalIn {
   from { opacity: 0; transform: translateY(10px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }

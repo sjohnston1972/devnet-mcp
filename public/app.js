@@ -179,9 +179,8 @@ async function runPush(call, preEl, env, triggerBtn) {
       openLinkModal();
       return;
     }
-    const prodNet = linkOrg.info?.slots?.prod?.networkName ?? "PROD network";
-    const confirmMsg = `Push ${call.method} ${call.path}\n\nto ${prodNet} (PROD)?\n\nReads are safe; writes change live config.`;
-    if (!confirm(confirmMsg)) return;
+    const ok = await confirmProdPush(call);
+    if (!ok) return;
   }
 
   if (triggerBtn) {
@@ -1103,6 +1102,64 @@ if (storedOverrides) {
 }
 
 fetchSandboxInfo();
+
+/* --------- PROD push confirmation modal --------- */
+
+const prodModalEls = {
+  modal: document.getElementById("prodPushModal"),
+  method: document.getElementById("prodModalMethod"),
+  path: document.getElementById("prodModalPath"),
+  net: document.getElementById("prodModalNetwork"),
+  netId: document.getElementById("prodModalNetworkId"),
+  notice: document.getElementById("prodCrNotice"),
+  cancel: document.getElementById("prodCancelBtn"),
+  cr: document.getElementById("prodChangeRequestBtn"),
+  confirm: document.getElementById("prodConfirmBtn"),
+};
+
+let prodResolver = null;
+
+function confirmProdPush(call) {
+  return new Promise((resolve) => {
+    prodResolver = resolve;
+    prodModalEls.method.textContent = call.method ?? "GET";
+    prodModalEls.path.textContent = call.path ?? "—";
+
+    const prodSlot = linkOrg.info?.slots?.prod ?? {};
+    prodModalEls.net.textContent = prodSlot.networkName ?? "PROD network";
+    prodModalEls.netId.textContent = prodSlot.networkId ?? "—";
+
+    prodModalEls.notice.hidden = true;
+    prodModalEls.modal.hidden = false;
+    // Default focus to Cancel for safety — Enter shouldn't push.
+    prodModalEls.cancel.focus();
+  });
+}
+
+function closeProdModal(result) {
+  prodModalEls.modal.hidden = true;
+  if (prodResolver) {
+    prodResolver(result);
+    prodResolver = null;
+  }
+}
+
+prodModalEls.modal.querySelectorAll("[data-modal-close]").forEach((el) => {
+  el.addEventListener("click", () => closeProdModal(false));
+});
+prodModalEls.cancel.addEventListener("click", () => closeProdModal(false));
+prodModalEls.confirm.addEventListener("click", () => closeProdModal(true));
+prodModalEls.cr.addEventListener("click", () => {
+  // Unwired stub — surface a notice and keep the modal open so the user
+  // can choose between cancel and "push with no change request".
+  prodModalEls.notice.hidden = false;
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !prodModalEls.modal.hidden) {
+    closeProdModal(false);
+  }
+});
 
 /* --------- init --------- */
 
