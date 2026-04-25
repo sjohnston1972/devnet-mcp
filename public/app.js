@@ -1,4 +1,5 @@
-/* DevNet Copilot — chat client */
+/* Cisco API Navigator — chat client */
+
 
 const STORAGE_KEY = "devnet-chat-history-v1";
 const MAX_HISTORY = 30;
@@ -59,6 +60,11 @@ function decorateCodeBlocks(scope) {
     langSpan.textContent = lang;
     header.appendChild(langSpan);
 
+    const headerActions = document.createElement("span");
+    headerActions.style.display = "inline-flex";
+    headerActions.style.gap = "6px";
+    headerActions.style.alignItems = "center";
+
     const copyBtn = document.createElement("button");
     copyBtn.className = "copy-btn";
     copyBtn.type = "button";
@@ -76,10 +82,188 @@ function decorateCodeBlocks(scope) {
         copyBtn.querySelector("span").textContent = "failed";
       }
     });
-    header.appendChild(copyBtn);
+
+    const merakiCall = code ? detectMerakiCall(code.textContent ?? "") : null;
+    if (merakiCall) {
+      const testBtn = makeTestBtn(merakiCall, pre);
+      headerActions.appendChild(testBtn);
+    }
+    headerActions.appendChild(copyBtn);
+    header.appendChild(headerActions);
 
     pre.insertBefore(header, pre.firstChild);
   });
+}
+
+/* --------- Meraki call detection --------- */
+
+const MERAKI_PATH_HINTS = [
+  /\/(?:organizations|networks|devices|admins|licenses|inventoryDevices|merakiAuthUsers|wireless|switch|appliance|camera|cellularGateway|sensor|sm|insight)\b/,
+];
+
+function detectMerakiCall(text) {
+  if (!text || text.length > 20_000) return null;
+
+  let path = null;
+
+  const fullUrl = text.match(/https?:\/\/api\.meraki\.com(\/[^\s'"`)\\<>]+)/i);
+  if (fullUrl) path = fullUrl[1];
+
+  if (!path) {
+    const quoted = text.match(/['"`](\/api\/v1\/[^'"`\s]+)['"`]/);
+    if (quoted) path = quoted[1];
+  }
+
+  if (!path) {
+    const quotedShort = text.match(/['"`](\/(?:organizations|networks|devices|admins)[^'"`\s]+)['"`]/);
+    if (quotedShort) path = quotedShort[1];
+  }
+
+  if (!path) return null;
+
+  if (!path.startsWith("/api/v1") && !path.startsWith("/v1")) {
+    if (MERAKI_PATH_HINTS.some((re) => re.test(path))) {
+      path = "/api/v1" + path;
+    } else {
+      return null;
+    }
+  }
+
+  let method = "GET";
+  const m =
+    text.match(/(?:--request|-X)\s+["']?(GET|POST|PUT|DELETE|PATCH)["']?/i) ||
+    text.match(/requests\.(get|post|put|delete|patch)\b/i) ||
+    text.match(/\.(get|post|put|delete|patch)\(/i) ||
+    text.match(/method\s*[:=]\s*['"](GET|POST|PUT|DELETE|PATCH)['"]/i) ||
+    text.match(/^\s*(GET|POST|PUT|DELETE|PATCH)\s+\//im);
+  if (m) method = m[1].toUpperCase();
+
+  let body = null;
+  const dataMatch =
+    text.match(/(?:--data-raw|--data|-d)\s+(['"])([\s\S]+?)\1/) ||
+    text.match(/json\s*=\s*(\{[\s\S]*?\})\s*[,)]/) ||
+    text.match(/data\s*=\s*(\{[\s\S]*?\})\s*[,)]/);
+  if (dataMatch) {
+    const raw = dataMatch[2] ?? dataMatch[1];
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      body = raw;
+    }
+  }
+
+  return { method, path, body };
+}
+
+function makeTestBtn(call, preEl) {
+  const btn = document.createElement("button");
+  btn.className = "test-btn";
+  btn.type = "button";
+  btn.title = `Run ${call.method} ${call.path} against the linked Meraki org`;
+  btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg><span>Test in sandbox</span>`;
+
+  if (linkOrg.mode === "byok" && linkOrg.byokKey) {
+    btn.dataset.mode = "byok";
+    btn.querySelector("span").textContent = "Test with my org";
+  }
+
+  btn.addEventListener("click", async () => {
+    if (btn.classList.contains("running")) return;
+    btn.classList.add("running");
+    btn.querySelector("span").textContent = "running…";
+
+    const existing = preEl.parentNode.querySelector(`.sandbox-response[data-pre="${preEl.dataset.testKey}"]`);
+    if (existing) existing.remove();
+    if (!preEl.dataset.testKey) {
+      preEl.dataset.testKey = `sr-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    try {
+      const headers = { "content-type": "application/json" };
+      if (linkOrg.mode === "byok" && linkOrg.byokKey) {
+        headers["x-user-meraki-key"] = linkOrg.byokKey;
+      }
+      const r = await fetch("/api/sandbox-call", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(call),
+      });
+      const data = await r.json();
+      renderSandboxResponse(preEl, call, data, r.status);
+    } catch (err) {
+      renderSandboxResponse(preEl, call, { error: err?.message ?? String(err) }, 0);
+    } finally {
+      btn.classList.remove("running");
+      btn.querySelector("span").textContent =
+        linkOrg.mode === "byok" && linkOrg.byokKey ? "Test with my org" : "Test in sandbox";
+    }
+  });
+
+  return btn;
+}
+
+function renderSandboxResponse(preEl, call, data, httpStatus) {
+  const wrap = document.createElement("div");
+  wrap.className = "sandbox-response";
+  wrap.dataset.pre = preEl.dataset.testKey;
+
+  const head = document.createElement("div");
+  head.className = "sr-head";
+
+  const method = document.createElement("span");
+  method.className = "sr-method";
+  method.textContent = data.method ?? call.method;
+
+  const path = document.createElement("span");
+  path.className = "sr-path";
+  path.textContent = data.url
+    ? data.url.replace(/^https?:\/\/api\.meraki\.com/, "")
+    : call.path;
+
+  const status = document.createElement("span");
+  status.className = "sr-status";
+  const ok = data.ok === true && !data.error;
+  status.dataset.status = ok ? "ok" : "err";
+  if (data.status) status.textContent = `${data.status} ${data.statusText ?? ""}`.trim();
+  else if (data.error) status.textContent = "error";
+  else status.textContent = `HTTP ${httpStatus}`;
+
+  const time = document.createElement("span");
+  time.className = "sr-time";
+  if (typeof data.elapsedMs === "number") time.textContent = `${data.elapsedMs} ms`;
+
+  const close = document.createElement("button");
+  close.className = "sr-close";
+  close.type = "button";
+  close.innerHTML = "&times;";
+  close.addEventListener("click", () => wrap.remove());
+
+  head.append(method, path, status, time, close);
+
+  const body = document.createElement("div");
+  body.className = "sr-body";
+
+  if (data.error && !data.body) {
+    const errEl = document.createElement("div");
+    errEl.className = "sr-error";
+    errEl.textContent = data.error + (data.unresolved ? `\nUnresolved: ${data.unresolved.join(", ")}` : "");
+    body.appendChild(errEl);
+  } else {
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.className = "language-json";
+    const payload = data.body ?? data;
+    code.textContent =
+      typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    pre.appendChild(code);
+    body.appendChild(pre);
+    try {
+      hljs.highlightElement(code);
+    } catch {}
+  }
+
+  wrap.append(head, body);
+  preEl.after(wrap);
 }
 
 /* --------- message DOM --------- */
@@ -106,7 +290,7 @@ function createMessageEl(role, content = "") {
 
   const meta = document.createElement("div");
   meta.className = "message-meta";
-  meta.textContent = role === "user" ? "you" : "DevNet Copilot";
+  meta.textContent = role === "user" ? "you" : "Cisco API Navigator";
   body.appendChild(meta);
 
   const contentEl = document.createElement("div");
@@ -184,7 +368,7 @@ function makeTypingEl() {
 
   const meta = document.createElement("div");
   meta.className = "message-meta";
-  meta.textContent = "DevNet Copilot";
+  meta.textContent = "Cisco API Navigator";
   body.appendChild(meta);
 
   const typing = document.createElement("div");
@@ -346,9 +530,9 @@ function exportChat() {
     flashStatus("nothing to export");
     return;
   }
-  const lines = ["# DevNet Copilot chat", ""];
+  const lines = ["# Cisco API Navigator chat", ""];
   for (const m of history) {
-    lines.push(`## ${m.role === "user" ? "You" : "DevNet Copilot"}`);
+    lines.push(`## ${m.role === "user" ? "You" : "Cisco API Navigator"}`);
     lines.push("");
     lines.push(m.content);
     lines.push("");
@@ -578,6 +762,188 @@ els.form.addEventListener("submit", (e) => {
 
 els.exportBtn.addEventListener("click", exportChat);
 els.clearBtn.addEventListener("click", clearChat);
+
+/* --------- Link Org / sandbox config --------- */
+
+const BYOK_KEY = "devnet-byok-v1";
+
+const linkOrg = {
+  info: null,
+  mode: "sandbox", // "sandbox" | "byok"
+  byokKey: "",
+  byokOrg: "",
+  byokNet: "",
+};
+
+const modalEls = {
+  btn: document.getElementById("linkOrgBtn"),
+  pill: document.getElementById("linkOrgPill"),
+  modal: document.getElementById("linkOrgModal"),
+  sandboxCard: document.getElementById("sandboxCard"),
+  sandboxName: document.getElementById("sandboxName"),
+  sandboxBase: document.getElementById("sandboxBase"),
+  sandboxOrg: document.getElementById("sandboxOrg"),
+  sandboxNet: document.getElementById("sandboxNet"),
+  sandboxKey: document.getElementById("sandboxKey"),
+  sandboxPill: document.getElementById("sandboxPill"),
+  useSandboxBtn: document.getElementById("useSandboxBtn"),
+  byokCard: document.getElementById("byokCard"),
+  byokKey: document.getElementById("byokKey"),
+  byokOrg: document.getElementById("byokOrg"),
+  byokNet: document.getElementById("byokNet"),
+  byokPill: document.getElementById("byokPill"),
+  saveByokBtn: document.getElementById("saveByokBtn"),
+  clearByokBtn: document.getElementById("clearByokBtn"),
+};
+
+function loadByok() {
+  try {
+    const raw = localStorage.getItem(BYOK_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveByok() {
+  if (linkOrg.byokKey) {
+    localStorage.setItem(
+      BYOK_KEY,
+      JSON.stringify({
+        key: linkOrg.byokKey,
+        org: linkOrg.byokOrg,
+        net: linkOrg.byokNet,
+      }),
+    );
+  } else {
+    localStorage.removeItem(BYOK_KEY);
+  }
+}
+
+function applyLinkState() {
+  // Top button pill
+  if (linkOrg.mode === "byok" && linkOrg.byokKey) {
+    modalEls.pill.hidden = false;
+    modalEls.pill.textContent = "your org";
+    modalEls.btn.dataset.mode = "byok";
+  } else if (linkOrg.info?.hasServerKey) {
+    modalEls.pill.hidden = false;
+    modalEls.pill.textContent = "sandbox";
+    modalEls.btn.dataset.mode = "sandbox";
+  } else {
+    modalEls.pill.hidden = false;
+    modalEls.pill.textContent = "set up";
+    modalEls.btn.dataset.mode = "missing";
+  }
+
+  // Card active states
+  modalEls.sandboxCard.dataset.active = linkOrg.mode === "sandbox" ? "true" : "false";
+  modalEls.byokCard.dataset.active = linkOrg.mode === "byok" ? "true" : "false";
+  modalEls.byokCard.dataset.mode = "byok";
+  modalEls.sandboxPill.hidden = linkOrg.mode !== "sandbox";
+  modalEls.byokPill.hidden = linkOrg.mode !== "byok";
+
+  // Re-paint test buttons in existing chat
+  document.querySelectorAll(".test-btn").forEach((btn) => {
+    if (linkOrg.mode === "byok" && linkOrg.byokKey) {
+      btn.dataset.mode = "byok";
+      btn.querySelector("span").textContent = "Test with my org";
+    } else {
+      delete btn.dataset.mode;
+      btn.querySelector("span").textContent = "Test in sandbox";
+    }
+  });
+}
+
+async function fetchSandboxInfo() {
+  try {
+    const r = await fetch("/api/sandbox-info", { cache: "no-store" });
+    linkOrg.info = await r.json();
+  } catch (err) {
+    linkOrg.info = { error: err?.message ?? String(err) };
+  }
+
+  if (linkOrg.info && !linkOrg.info.error) {
+    modalEls.sandboxName.textContent = linkOrg.info.name ?? "Cisco DevNet Sandbox";
+    modalEls.sandboxBase.textContent = (linkOrg.info.base ?? "").replace(/^https?:\/\//, "");
+    modalEls.sandboxOrg.textContent = linkOrg.info.orgId ?? "—";
+    modalEls.sandboxNet.textContent = linkOrg.info.networkId ?? "—";
+    if (linkOrg.info.hasServerKey) {
+      modalEls.sandboxKey.textContent = "configured";
+      modalEls.sandboxKey.dataset.state = "ok";
+    } else {
+      modalEls.sandboxKey.textContent = "not configured";
+      modalEls.sandboxKey.dataset.state = "missing";
+    }
+  }
+
+  applyLinkState();
+}
+
+function openLinkModal() {
+  modalEls.modal.hidden = false;
+  modalEls.byokKey.value = linkOrg.byokKey;
+  modalEls.byokOrg.value = linkOrg.byokOrg;
+  modalEls.byokNet.value = linkOrg.byokNet;
+  applyLinkState();
+}
+
+function closeLinkModal() {
+  modalEls.modal.hidden = true;
+}
+
+modalEls.btn.addEventListener("click", openLinkModal);
+modalEls.modal.querySelectorAll("[data-modal-close]").forEach((el) => {
+  el.addEventListener("click", closeLinkModal);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !modalEls.modal.hidden) closeLinkModal();
+});
+
+modalEls.useSandboxBtn.addEventListener("click", () => {
+  linkOrg.mode = "sandbox";
+  applyLinkState();
+  closeLinkModal();
+});
+
+modalEls.saveByokBtn.addEventListener("click", () => {
+  const key = modalEls.byokKey.value.trim();
+  if (!key) {
+    modalEls.byokKey.focus();
+    return;
+  }
+  linkOrg.byokKey = key;
+  linkOrg.byokOrg = modalEls.byokOrg.value.trim();
+  linkOrg.byokNet = modalEls.byokNet.value.trim();
+  linkOrg.mode = "byok";
+  saveByok();
+  applyLinkState();
+  closeLinkModal();
+});
+
+modalEls.clearByokBtn.addEventListener("click", () => {
+  linkOrg.byokKey = "";
+  linkOrg.byokOrg = "";
+  linkOrg.byokNet = "";
+  modalEls.byokKey.value = "";
+  modalEls.byokOrg.value = "";
+  modalEls.byokNet.value = "";
+  linkOrg.mode = "sandbox";
+  saveByok();
+  applyLinkState();
+});
+
+/* Hydrate BYOK from storage */
+const stored = loadByok();
+if (stored?.key) {
+  linkOrg.byokKey = stored.key;
+  linkOrg.byokOrg = stored.org ?? "";
+  linkOrg.byokNet = stored.net ?? "";
+  linkOrg.mode = "byok";
+}
+
+fetchSandboxInfo();
 
 /* --------- init --------- */
 

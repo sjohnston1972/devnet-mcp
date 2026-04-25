@@ -3,6 +3,12 @@ interface Env {
   ASSETS: Fetcher;
   MCP_URL: string;
   AI_MODEL: string;
+  MERAKI_SANDBOX_API_KEY?: string;
+  MERAKI_SANDBOX_NAME?: string;
+  MERAKI_SANDBOX_BASE?: string;
+  MERAKI_SANDBOX_ORG_ID?: string;
+  MERAKI_SANDBOX_NETWORK_ID?: string;
+  MERAKI_SANDBOX_DEVICE_SERIAL?: string;
 }
 
 interface ChatMessage {
@@ -14,7 +20,7 @@ interface ChatRequest {
   messages: ChatMessage[];
 }
 
-const SYSTEM_PROMPT = `You are DevNet Copilot, a Cisco-focused engineering assistant connected to the official DevNet Content Search MCP server.
+const SYSTEM_PROMPT = `You are Cisco API Navigator, an engineering assistant connected to the official DevNet Content Search MCP server.
 
 You have just received fresh search results from DevNet covering Meraki and Catalyst Center APIs in a <context> block. Treat that block as authoritative. If it answers the user's question, ground your reply in it and cite the operationId or documentation_url where relevant.
 
@@ -38,6 +44,14 @@ export default {
       return handleMcpStatus(env);
     }
 
+    if (url.pathname === "/api/sandbox-info") {
+      return handleSandboxInfo(env);
+    }
+
+    if (url.pathname === "/api/sandbox-call" && request.method === "POST") {
+      return handleSandboxCall(request, env);
+    }
+
     if (url.pathname === "/api/health") {
       return Response.json({ ok: true, model: env.AI_MODEL });
     }
@@ -45,6 +59,190 @@ export default {
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
+
+const SANDBOX_BASE_DEFAULT = "https://api.meraki.com/api/v1";
+const SANDBOX_NAME_DEFAULT = "Cisco DevNet Always-On Sandbox";
+const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH"]);
+
+function sandboxConfig(env: Env) {
+  return {
+    name: env.MERAKI_SANDBOX_NAME || SANDBOX_NAME_DEFAULT,
+    base: (env.MERAKI_SANDBOX_BASE || SANDBOX_BASE_DEFAULT).replace(/\/$/, ""),
+    orgId: env.MERAKI_SANDBOX_ORG_ID || "",
+    networkId: env.MERAKI_SANDBOX_NETWORK_ID || "",
+    serial: env.MERAKI_SANDBOX_DEVICE_SERIAL || "",
+    hasKey: Boolean(env.MERAKI_SANDBOX_API_KEY),
+  };
+}
+
+async function handleSandboxInfo(env: Env): Promise<Response> {
+  const cfg = sandboxConfig(env);
+  return Response.json(
+    {
+      name: cfg.name,
+      base: cfg.base,
+      orgId: cfg.orgId || null,
+      networkId: cfg.networkId || null,
+      serial: cfg.serial || null,
+      hasServerKey: cfg.hasKey,
+      placeholders: {
+        "{organizationId}": cfg.orgId || null,
+        "{orgId}": cfg.orgId || null,
+        "{networkId}": cfg.networkId || null,
+        "{netId}": cfg.networkId || null,
+        "{serial}": cfg.serial || null,
+      },
+      docsUrl: "https://developer.cisco.com/meraki/sandbox/",
+    },
+    { headers: { "cache-control": "no-store" } },
+  );
+}
+
+interface SandboxCallBody {
+  method?: string;
+  path?: string;
+  body?: unknown;
+}
+
+async function handleSandboxCall(request: Request, env: Env): Promise<Response> {
+  let payload: SandboxCallBody;
+  try {
+    payload = await request.json();
+  } catch {
+    return Response.json({ error: "invalid JSON" }, { status: 400 });
+  }
+
+  const method = (payload.method || "GET").toUpperCase();
+  if (!ALLOWED_METHODS.has(method)) {
+    return Response.json({ error: `method ${method} not allowed` }, { status: 400 });
+  }
+
+  if (!payload.path || typeof payload.path !== "string") {
+    return Response.json({ error: "path is required" }, { status: 400 });
+  }
+
+  const cfg = sandboxConfig(env);
+  const userKey = request.headers.get("x-user-meraki-key")?.trim();
+  const apiKey = userKey || env.MERAKI_SANDBOX_API_KEY;
+
+  if (!apiKey) {
+    return Response.json(
+      {
+        error:
+          "no Meraki API key configured. Set MERAKI_SANDBOX_API_KEY via `wrangler secret put`, or paste your own key in the Link Org panel.",
+      },
+      { status: 503 },
+    );
+  }
+
+  const placeholders: Record<string, string> = {};
+  if (cfg.orgId) {
+    placeholders["{organizationId}"] = cfg.orgId;
+    placeholders["{orgId}"] = cfg.orgId;
+  }
+  if (cfg.networkId) {
+    placeholders["{networkId}"] = cfg.networkId;
+    placeholders["{netId}"] = cfg.networkId;
+  }
+  if (cfg.serial) {
+    placeholders["{serial}"] = cfg.serial;
+  }
+
+  const { resolvedPath, missing } = resolvePath(payload.path, placeholders);
+  if (missing.length > 0) {
+    return Response.json(
+      {
+        error: `path needs values not configured for this sandbox: ${missing.join(", ")}`,
+        unresolved: missing,
+      },
+      { status: 422 },
+    );
+  }
+
+  if (!resolvedPath.startsWith("/api/v1/") && !resolvedPath.startsWith("/v1/")) {
+    return Response.json(
+      { error: "only /api/v1/* paths are permitted" },
+      { status: 400 },
+    );
+  }
+
+  const targetUrl = cfg.base + resolvedPath.replace(/^\/api\/v1/, "").replace(/^\/v1/, "");
+  const sentAt = Date.now();
+
+  const init: RequestInit = {
+    method,
+    headers: {
+      "X-Cisco-Meraki-API-Key": apiKey,
+      Authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+      accept: "application/json",
+      "user-agent": "cisco-api-navigator/0.1",
+    },
+  };
+  if (payload.body !== undefined && method !== "GET" && method !== "DELETE") {
+    init.body = typeof payload.body === "string" ? payload.body : JSON.stringify(payload.body);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(targetUrl, init);
+  } catch (err) {
+    return Response.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 502 },
+    );
+  }
+
+  const elapsedMs = Date.now() - sentAt;
+  const respText = await response.text();
+  let respBody: unknown = respText;
+  try {
+    respBody = JSON.parse(respText);
+  } catch {
+    /* keep raw */
+  }
+
+  const interestingHeaders: Record<string, string> = {};
+  for (const h of ["content-type", "x-request-id", "retry-after"]) {
+    const v = response.headers.get(h);
+    if (v) interestingHeaders[h] = v;
+  }
+
+  return Response.json({
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    elapsedMs,
+    method,
+    url: targetUrl,
+    headers: interestingHeaders,
+    body: respBody,
+    usedUserKey: Boolean(userKey),
+  });
+}
+
+function resolvePath(
+  rawPath: string,
+  placeholders: Record<string, string>,
+): { resolvedPath: string; missing: string[] } {
+  let path = rawPath.trim();
+  // Drop fully-qualified URLs
+  path = path.replace(/^https?:\/\/[^/]+/i, "");
+  if (!path.startsWith("/")) path = "/" + path;
+  // Strip query for safety on substitution; reattach later
+  const qIdx = path.indexOf("?");
+  const query = qIdx >= 0 ? path.slice(qIdx) : "";
+  let basePath = qIdx >= 0 ? path.slice(0, qIdx) : path;
+
+  for (const [token, value] of Object.entries(placeholders)) {
+    if (value) basePath = basePath.split(token).join(value);
+  }
+
+  const missingMatches = basePath.match(/\{[a-zA-Z][a-zA-Z0-9_]*\}/g) ?? [];
+  const missing = [...new Set(missingMatches)];
+
+  return { resolvedPath: basePath + query, missing };
+}
 
 async function handleMcpStatus(env: Env): Promise<Response> {
   const checkedAt = new Date().toISOString();

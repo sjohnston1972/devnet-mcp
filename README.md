@@ -1,4 +1,4 @@
-# DevNet Copilot
+# Cisco API Navigator
 
 A beautiful chat interface for Cisco's [DevNet Content Search MCP server](https://github.com/CiscoDevNet/devnet-content-search-mcp), running on Cloudflare Workers + Workers AI.
 

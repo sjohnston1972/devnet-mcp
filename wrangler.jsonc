@@ -23,6 +23,10 @@
   ],
   "vars": {
     "MCP_URL": "https://devnet.cisco.com/v1/foundation-search-mcp/mcp",
-    "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+    "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "MERAKI_SANDBOX_NAME": "Cisco DevNet Always-On Sandbox",
+    "MERAKI_SANDBOX_BASE": "https://api.meraki.com/api/v1",
+    "MERAKI_SANDBOX_ORG_ID": "549236",
+    "MERAKI_SANDBOX_NETWORK_ID": "L_646829496481105433"
   }
 }
