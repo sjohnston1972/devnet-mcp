@@ -2,7 +2,7 @@
 
 A beautiful chat interface for Cisco's [DevNet Content Search MCP server](https://github.com/CiscoDevNet/devnet-content-search-mcp), running on Cloudflare Workers + Workers AI.
 
-> Live: **https://devnet-api.clydeford.net**
+> Live: **https://devnet-mcp.clydeford.net**
 
 Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded in real Meraki and Catalyst Center documentation. Every reply is backed by a fresh search of Cisco's hosted MCP server, so endpoints, operation IDs, and OpenAPI specs come straight from the source.
 
@@ -71,7 +71,7 @@ Once authenticated to Cloudflare:
 npx wrangler deploy
 ```
 
-The custom domain `devnet-api.clydeford.net` is declared in `wrangler.jsonc` — Wrangler will attach it on first deploy as long as `clydeford.net` lives on this Cloudflare account.
+The custom domain `devnet-mcp.clydeford.net` is declared in `wrangler.jsonc` — Wrangler will attach it on first deploy as long as `clydeford.net` lives on this Cloudflare account.
 
 To swap models, edit `vars.AI_MODEL` in `wrangler.jsonc`. Any Workers AI text-generation model with streaming will work.
 

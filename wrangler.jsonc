@@ -17,7 +17,7 @@
   },
   "routes": [
     {
-      "pattern": "devnet-api.clydeford.net",
+      "pattern": "devnet-mcp.clydeford.net",
       "custom_domain": true
     }
   ],
