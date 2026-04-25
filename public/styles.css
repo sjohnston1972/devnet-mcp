@@ -842,6 +842,10 @@ textarea#input::placeholder {
   place-items: center;
 }
 
+.modal[hidden] {
+  display: none;
+}
+
 .modal-backdrop {
   position: absolute;
   inset: 0;
