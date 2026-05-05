@@ -4,6 +4,8 @@ A beautiful chat interface for Cisco's [DevNet Content Search MCP server](https:
 
 > Live: **https://devnet-mcp.clydeford.net**
 
+![Cisco API Navigator](docs/screenshot.png)
+
 Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded in real Meraki and Catalyst Center documentation. Every reply is backed by a fresh search of Cisco's hosted MCP server, so endpoints, operation IDs, and OpenAPI specs come straight from the source.
 
 ## What it does
