@@ -1,0 +1,31 @@
+{
+  "name": "Update Network Appliance Firewall L 3 Firewall Rules",
+  "description": "Update the L3 firewall rules of an MX network",
+  "content": "Update the L3 firewall rules of an MX network",
+  "products": [
+    "Meraki"
+  ],
+  "tags": [
+    "appliance",
+    "configure",
+    "firewall",
+    "l3FirewallRules"
+  ],
+  "categories": [
+    "Networking"
+  ],
+  "api_path": "/networks/{networkId}/appliance/firewall/l3FirewallRules",
+  "api_description": "Update the L3 firewall rules of an MX network",
+  "api_method": "put",
+  "api_operation_id": "updateNetworkApplianceFirewallL3FirewallRules",
+  "api_summary": "Update the L3 firewall rules of an MX network",
+  "api_tags": [
+    "appliance",
+    "configure",
+    "firewall",
+    "l3FirewallRules"
+  ],
+  "api_doc_hierarchy": "API Reference\nAPI\nProducts\nappliance\nconfigure\nfirewall\nl3FirewallRules\nUpdate Network Appliance Firewall L 3 Firewall Rules",
+  "openapi_specification": "{description: Update the L3 firewall rules of an MX network, operationId: updateNetworkApplianceFirewallL3FirewallRules, parameters: [{name: networkId, in: path, description: Network ID, schema: {type: string}, required: true}], requestBody: {content: {application/json: {schema: {type: object, properties: {rules: {type: array, items: {type: object, properties: {comment: {type: string, description: Description of the rule (optional)}, policy: {type: string, enum: [allow, deny], description: 'allow' or 'deny' traffic specified by this rule}, protocol: {type: string, enum: [any, icmp, icmp6, tcp, udp], description: The type of protocol (must be 'tcp', 'udp', 'icmp', 'icmp6' or 'any')}, srcPort: {type: string, description: Comma-separated list of source port(s) (integer in the range 1-65535), or 'any'}, srcCidr: {type: string, description: Comma-separated list of source IP address(es) (in IP or CIDR notation), or 'any' (note: FQDN not supported for source addresses)}, destPort: {type: string, description: Comma-separated list of destination port(s) (integer in the range 1-65535), or 'any'}, destCidr: {type: string, description: Comma-separated list of destination IP address(es) (in IP or CIDR notation), fully-qualified domain names (FQDN) or 'any'}, syslogEnabled: {type: boolean, description: Log this rule to syslog (true or false, boolean value) - only applicable if a syslog has been configured (optional)}}, required: [policy, protocol, srcCidr, destCidr]}, description: An ordered array of the firewall rules (not including the default rule)}, syslogDefaultRule: {type: boolean, description: Log the special default rule (boolean value - enable only if you've configured a syslog server) (optional)}}, example: {rules: [{comment: Allow TCP traffic to subnet with HTTP servers., policy: allow, protocol: tcp, srcPort: Any, srcCidr: Any, destPort: 443, destCidr: 192.168.1.0/24, syslogEnabled: false}], syslogDefaultRule: true}}}}, required: false}, responses: {200: {description: Successful operation, content: {application/json: {schema: {type: object, properties: {rules: {type: array, items: {type: object, properties: {comment: {type: string, description: Description of the rule (optional)}, policy: {type: string, description: 'allow' or 'deny' traffic specified by this rule}, protocol: {type: string, description: The type of protocol (must be 'tcp', 'udp', 'icmp', 'icmp6' or 'any')}, srcPort: {type: string, description: Comma-separated list of source port(s) (integer in the range 1-65535), or 'any'}, srcCidr: {type: string, description: Comma-separated list of source IP address(es) (in IP or CIDR notation), or 'any' (note: FQDN not supported for source addresses)}, destPort: {type: string, description: Comma-separated list of destination port(s) (integer in the range 1-65535), or 'any'}, destCidr: {type: string, description: Comma-separated list of destination IP address(es) (in IP or CIDR notation), fully-qualified domain names (FQDN) or 'any'}, syslogEnabled: {type: boolean, description: Log this rule to syslog (true or false, boolean value) - only applicable if a syslog has been configured (optional)}}}, description: An ordered array of the firewall rules (not including the default rule)}}}, example: {rules: [{comment: Allow TCP traffic to subnet with HTTP servers., policy: allow, protocol: tcp, srcPort: Any, srcCidr: Any, destPort: 443, destCidr: 192.168.1.0/24, syslogEnabled: false}]}}}}}, security: [{oauth2: [sdwan:config:write]}], summary: Update the L3 firewall rules of an MX network, tags: [appliance, configure, firewall, l3FirewallRules], __originalOperationId: updateNetworkApplianceFirewallL3FirewallRules, method: put, path: /networks/{networkId}/appliance/firewall/l3FirewallRules, sampleCode: {Meraki Python Library: {code: import meraki\\n\\n# Defining your API key as a variable in source code is discouraged.\\n# This API key is for a read-only docs-specific environment.\\n# In your own code, use an environment variable as shown under the Usage section\\n# @ https://github.com/meraki/dashboard-api-python/\\n\\nAPI_KEY = 'your-key-here'\\n\\ndashboard = meraki.DashboardAPI(API_KEY)\\n\\nnetwork_id = 'L_646829496481105433'\\n\\nresponse = dashboard.appliance.updateNetworkApplianceFirewallL3FirewallRules(\\n    network_id, \\n    rules=[{'comment': 'Allow TCP traffic to subnet with HTTP servers.', 'policy': 'allow', 'protocol': 'tcp', 'destPort': '443', 'destCidr': '192.168.1.0/24', 'srcPort': 'Any', 'srcCidr': 'Any', 'syslogEnabled': False}]\\n)\\n\\nprint(response), highlight: python}}}",
+  "documentation_url": "https://developer.cisco.com/meraki/api-v1/update-network-appliance-firewall-l-3-firewall-rules"
+}

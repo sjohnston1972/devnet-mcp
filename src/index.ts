@@ -1,4 +1,5 @@
 import { upstreamBodyFor } from "./upstream-body";
+import { buildCurlSnippet } from "./snippet-builder";
 
 interface Env {
   AI: Ai;
@@ -33,6 +34,7 @@ RULES:
 - Be concise and technical. No filler, no apologies, no "as an AI".
 - When showing API usage, prefer fenced code blocks with a language tag (\`\`\`bash, \`\`\`python, \`\`\`json, \`\`\`http).
 - Default ALL code examples to curl with a \`\`\`bash fence. Use the exact method + path from the spec. Only switch to Python (requests) or JavaScript (fetch) if the user explicitly asks for that language.
+- When a search result includes an "Example request" snippet, reproduce that snippet EXACTLY as your code example — same endpoint, same headers, same JSON structure, no comments inside the JSON. Change ONLY the JSON values (never the keys) to fit the user's ask. Do not write curl commands from scratch when a snippet is provided.
 - For path parameters, ALWAYS use template placeholders: {organizationId}, {networkId}, {serial}. NEVER write literal example IDs like N_123456789, L_646829..., 549236, or any made-up value. The runtime substitutes these placeholders with the user's linked DEV/PROD network at request time, so a literal example ID will hit a non-existent target and 404.
 - For the API key in examples, write the literal placeholder YOUR_API_KEY (the runtime injects the real key from a secret — never put a real key in a snippet).
 - Meraki MX firewall direction matters: traffic from the LAN out to internet/SaaS destinations (Microsoft 365, SIP trunks, etc.) is OUTBOUND — use updateNetworkApplianceFirewallL3FirewallRules with the external subnets in destCidr. Only use inboundFirewallRules for traffic arriving from the internet; Meraki rejects public subnets in an inbound rule's destCidr (it only accepts local VLAN(n).* destinations or "any").
@@ -526,15 +528,18 @@ function formatContext(
   const parts: string[] = [];
 
   parts.push("## Meraki search results");
-  parts.push(formatToolResult(meraki));
+  parts.push(formatToolResult(meraki, SANDBOX_BASE_DEFAULT));
   parts.push("");
   parts.push("## Catalyst Center search results");
-  parts.push(formatToolResult(catalyst));
+  parts.push(formatToolResult(catalyst, null));
 
   return parts.join("\n");
 }
 
-function formatToolResult(result: McpToolResult | { error: string }): string {
+function formatToolResult(
+  result: McpToolResult | { error: string },
+  snippetBase: string | null,
+): string {
   if ("error" in result && result.error) {
     return `(search failed: ${result.error})`;
   }
@@ -555,6 +560,23 @@ function formatToolResult(result: McpToolResult | { error: string }): string {
       }
       if (item.api_operation_id) lines.push(`OperationId: ${item.api_operation_id}`);
       if (item.documentation_url) lines.push(`Docs: ${item.documentation_url}`);
+      if (snippetBase && item.api_method && item.api_path) {
+        try {
+          const snippet = buildCurlSnippet({
+            method: String(item.api_method),
+            path: String(item.api_path),
+            spec: item.openapi_specification
+              ? String(item.openapi_specification)
+              : undefined,
+            base: snippetBase,
+          });
+          lines.push(
+            `Example request (reproduce verbatim; change only JSON values):\n\`\`\`bash\n${snippet}\n\`\`\``,
+          );
+        } catch {
+          /* never let snippet generation break context assembly */
+        }
+      }
       if (item.tags && Array.isArray(item.tags)) lines.push(`Tags: ${item.tags.join(", ")}`);
       if (item.openapi_specification) {
         const spec = String(item.openapi_specification).slice(0, 1500);

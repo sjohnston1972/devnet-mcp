@@ -1,0 +1,29 @@
+{
+  "name": "Get Organization Networks",
+  "description": "List the networks that the user has privileges on in an organization",
+  "content": "List the networks that the user has privileges on in an organization",
+  "products": [
+    "Meraki"
+  ],
+  "tags": [
+    "organizations",
+    "configure",
+    "networks"
+  ],
+  "categories": [
+    "Networking"
+  ],
+  "api_path": "/organizations/{organizationId}/networks",
+  "api_description": "List the networks that the user has privileges on in an organization",
+  "api_method": "get",
+  "api_operation_id": "getOrganizationNetworks",
+  "api_summary": "List the networks that the user has privileges on in an organization",
+  "api_tags": [
+    "organizations",
+    "configure",
+    "networks"
+  ],
+  "api_doc_hierarchy": "API Reference\nAPI\nPlatform\nconfigure\nnetworks\nGet Organization Networks",
+  "openapi_specification": "{description: List the networks that the user has privileges on in an organization, operationId: getOrganizationNetworks, parameters: [{name: organizationId, in: path, description: Organization ID, schema: {type: string}, required: true}, {name: configTemplateId, in: query, description: An optional parameter that is the ID of a config template. Will return all networks bound to that template., schema: {type: string}}, {name: isBoundToConfigTemplate, in: query, description: An optional parameter to filter config template bound networks. If configTemplateId is set, this cannot be false., schema: {type: boolean}}, {name: tags, in: query, description: An optional parameter to filter networks by tags. The filtering is case-sensitive. If tags are included, 'tagsFilterType' should also be included (see below)., schema: {type: array, items: {type: string}}}, {name: tagsFilterType, in: query, description: An optional parameter of value 'withAnyTags' or 'withAllTags' to indicate whether to return networks which contain ANY or ALL of the included tags. If no type is included, 'withAnyTags' will be selected., schema: {type: string, enum: [withAllTags, withAnyTags]}}, {name: productTypes, in: query, description: An optional parameter to filter networks by product type. Results will have at least one of the included product types., schema: {type: array, items: {type: string, enum: [appliance, camera, campusGateway, cellularGateway, secureConnect, sensor, switch, systemsManager, wireless, wirelessController]}}}, {name: perPage, in: query, description: The number of entries per page returned. Acceptable range is 3 - 100000. Default is 1000., schema: {type: integer}}, {name: startingAfter, in: query, description: A token used by the server to indicate the start of the page. Often this is a timestamp or an ID but it is not limited to those. This parameter should not be defined by client applications. The link for the first, last, prev, or next page in the HTTP Link header should define it., schema: {type: string}}, {name: endingBefore, in: query, description: A token used by the server to indicate the end of the page. Often this is a timestamp or an ID but it is not limited to those. This parameter should not be defined by client applications. The link for the first, last, prev, or next page in the HTTP Link header should define it., schema: {type: string}}], responses: {200: {description: Successful operation, content: {application/json: {schema: {type: array, items: {type: object, properties: {id: {type: string, description: Network ID}, organizationId: {type: string, description: Organization ID}, name: {type: string, description: Network name}, productTypes: {type: array, items: {type: string}, description: List of the product types that the network supports}, timeZone: {type: string, description: Timezone of the network}, tags: {type: array, items: {type: string}, description: Network tags}, enrollmentString: {type: string, description: Enrollment string for the network}, url: {type: string, description: URL to the network Dashboard UI}, notes: {type: string, description: Notes for the network}, isBoundToConfigTemplate: {type: boolean, description: If the network is bound to a config template}}}}, example: [{id: N_24329156, organizationId: 2930418, name: Main Office, productTypes: [appliance, switch, wireless], timeZone: America/Los_Angeles, tags: [tag1, tag2], enrollmentString: my-enrollment-string, url: https://n1.meraki.com//n//manage/nodes/list, notes: Additional description of the network, isBoundToConfigTemplate: false}]}}, headers: {Link: {schema: {type: string}, description: A comma-separated list of first, last, prev, and next relative links used for subsequent paginated requests.}}}}, security: [{oauth2: [dashboard:general:config:read]}], summary: List the networks that the user has privileges on in an organization, tags: [organizations, configure, networks], __originalOperationId: getOrganizationNetworks, method: get, path: /organizations/{organizationId}/networks, sampleCode: {Meraki Python Library: {code: import meraki\\n\\n# Defining your API key as a variable in source code is discouraged.\\n# This API key is for a read-only docs-specific environment.\\n# In your own code, use an environment variable as shown under the Usage section\\n# @ https://github.com/meraki/dashboard-api-python/\\n\\nAPI_KEY = 'your-key-here'\\n\\ndashboard = meraki.DashboardAPI(API_KEY)\\n\\norganization_id = '549236'\\n\\nresponse = dashboard.organizations.getOrganizationNetworks(\\n    organization_id, total_pages='all'\\n)\\n\\nprint(response), highlight: python}}}",
+  "documentation_url": "https://developer.cisco.com/meraki/api-v1/get-organization-networks"
+}

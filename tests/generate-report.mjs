@@ -71,6 +71,21 @@ for (const c of cases) {
 const FINDINGS = [
   {
     severity: "high",
+    title: "LLM composed curl/JSON freehand — root of the whole push-failure class",
+    status: "fixed",
+    detail:
+      "The DevNet MCP server returns documentation only (method, path, OpenAPI excerpt), never " +
+      "code, so the chat model wrote every snippet from scratch — producing comments in JSON, " +
+      "dangling members, broken quoting and wrong endpoints. The worker now builds each Meraki " +
+      "snippet deterministically (src/snippet-builder.ts): a relaxed-flow parser extracts the " +
+      "request-body example from the spec excerpt and emits canonical curl with strict JSON; the " +
+      "system prompt instructs the model to reproduce it verbatim, changing only values. Round-trip " +
+      "tested (generated snippet → detectMerakiCall → zero repairs) and probed live: 4/4 chat runs " +
+      "emitted strict-JSON snippets on the correct endpoint.",
+    where: "src/snippet-builder.ts, src/index.ts (formatToolResult, SYSTEM_PROMPT)",
+  },
+  {
+    severity: "high",
     title: "Assistant chose INBOUND firewall rules for LAN→internet traffic (Meraki 400 on dst_cidr)",
     status: "fixed",
     detail:
