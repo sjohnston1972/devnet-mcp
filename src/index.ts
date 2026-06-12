@@ -1,3 +1,5 @@
+import { upstreamBodyFor } from "./upstream-body";
+
 interface Env {
   AI: Ai;
   ASSETS: Fetcher;
@@ -204,8 +206,9 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
       "user-agent": "cisco-api-navigator/0.1",
     },
   };
-  if (payload.body !== undefined && method !== "GET" && method !== "DELETE") {
-    init.body = typeof payload.body === "string" ? payload.body : JSON.stringify(payload.body);
+  const upstreamBody = upstreamBodyFor(method, payload.body);
+  if (upstreamBody !== undefined) {
+    init.body = upstreamBody;
   }
 
   let response: Response;

@@ -138,6 +138,81 @@ test("repairedSource contains the cleaned JSON string", () => {
   assert.deepEqual(JSON.parse(r.repairedSource), { b: 1 });
 });
 
+test("strips # line comments (the Microsoft SIP rule bug)", () => {
+  const raw = `{
+    "rules": [
+      {
+        "comment": "Microsoft SIP rule",
+        "policy": "allow",
+        "ipVersion": "ipv4",
+        "protocol": "udp",
+        "srcCidr": "any",
+        "srcPort": "any",
+        "dstCidr": "13.107.4.0/24", # Microsoft SIP subnet
+        "dstPort": "5060", # SIP port
+        "vlan": "any"
+      }
+    ]
+  }`;
+  const r = parseTolerantJson(raw);
+  assert.equal(r.repaired, true);
+  assert.deepEqual(r.value, {
+    rules: [
+      {
+        comment: "Microsoft SIP rule",
+        policy: "allow",
+        ipVersion: "ipv4",
+        protocol: "udp",
+        srcCidr: "any",
+        srcPort: "any",
+        dstCidr: "13.107.4.0/24",
+        dstPort: "5060",
+        vlan: "any",
+      },
+    ],
+  });
+});
+
+test("strips // line comments", () => {
+  const raw = `{
+    "dstCidr": "52.112.0.0/14", // Teams media subnet
+    "dstPort": "3478"
+  }`;
+  const r = parseTolerantJson(raw);
+  assert.equal(r.repaired, true);
+  assert.deepEqual(r.value, { dstCidr: "52.112.0.0/14", dstPort: "3478" });
+});
+
+test("strips comment on the last member, cleaning the leftover trailing comma", () => {
+  const raw = `{
+    "a": 1, # trailing comment
+  }`;
+  const r = parseTolerantJson(raw);
+  assert.equal(r.repaired, true);
+  assert.deepEqual(r.value, { a: 1 });
+});
+
+test("does not treat # inside a string value as a comment", () => {
+  const raw = '{"color": "#ff0000", "tag": "a#b",}';
+  const r = parseTolerantJson(raw);
+  assert.equal(r.repaired, true);
+  assert.deepEqual(r.value, { color: "#ff0000", tag: "a#b" });
+});
+
+test("does not treat // inside a URL string as a comment", () => {
+  const raw = '{"url": "https://api.meraki.com/api/v1",}';
+  const r = parseTolerantJson(raw);
+  assert.equal(r.repaired, true);
+  assert.deepEqual(r.value, { url: "https://api.meraki.com/api/v1" });
+});
+
+test("comment stripping respects escaped quotes inside strings", () => {
+  const raw = '{"note": "say \\"hi\\" # not a comment", # real comment\n"b": 2}';
+  const r = parseTolerantJson(raw);
+  assert.equal(r.repaired, true);
+  assert.deepEqual(r.value, { note: 'say "hi" # not a comment', b: 2 });
+});
+
 test("does not corrupt URLs containing colons inside strings", () => {
   const raw = '{"url": "https://example.com:8443/path"}';
   const r = parseTolerantJson(raw);
