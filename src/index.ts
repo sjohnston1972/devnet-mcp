@@ -1,11 +1,15 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { upstreamBodyFor } from "./upstream-body";
 import { buildCurlSnippet } from "./snippet-builder";
+import { toAnthropicTurns } from "./chat-history";
 
 interface Env {
   AI: Ai;
   ASSETS: Fetcher;
   MCP_URL: string;
   AI_MODEL: string;
+  ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_MODEL?: string;
   MERAKI_SANDBOX_API_KEY?: string;
   MERAKI_SANDBOX_BASE?: string;
   MERAKI_SANDBOX_ORG_ID?: string;
@@ -43,11 +47,11 @@ RULES:
 - Never wrap your entire reply in a single code block.`;
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/chat" && request.method === "POST") {
-      return handleChat(request, env);
+      return handleChat(request, env, ctx);
     }
 
     if (url.pathname === "/api/mcp-status") {
@@ -63,7 +67,7 @@ export default {
     }
 
     if (url.pathname === "/api/health") {
-      return Response.json({ ok: true, model: env.AI_MODEL });
+      return Response.json({ ok: true, model: activeModel(env) });
     }
 
     return env.ASSETS.fetch(request);
@@ -71,6 +75,13 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 const SANDBOX_BASE_DEFAULT = "https://api.meraki.com/api/v1";
+const ANTHROPIC_MODEL_DEFAULT = "claude-opus-4-8";
+
+function activeModel(env: Env): string {
+  return env.ANTHROPIC_API_KEY
+    ? env.ANTHROPIC_MODEL || ANTHROPIC_MODEL_DEFAULT
+    : env.AI_MODEL;
+}
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH"]);
 
 interface MerakiSlot {
@@ -346,7 +357,11 @@ async function handleMcpStatus(env: Env): Promise<Response> {
   }
 }
 
-async function handleChat(request: Request, env: Env): Promise<Response> {
+async function handleChat(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
   let body: ChatRequest;
   try {
     body = await request.json();
@@ -376,14 +391,25 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   ]);
 
   const contextBlock = formatContext(merakiResults, catalystResults);
+  const finalUserContent = `<context>\n${contextBlock}\n</context>\n\nUser question: ${lastUser.content}`;
 
+  const sseHeaders = {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    "x-model": activeModel(env),
+    "x-mcp-meraki-hits": String(extractHitCount(merakiResults)),
+    "x-mcp-catalyst-hits": String(extractHitCount(catalystResults)),
+  };
+
+  if (env.ANTHROPIC_API_KEY) {
+    return claudeChatResponse(env, ctx, messages, finalUserContent, sseHeaders);
+  }
+
+  // Fallback: Workers AI (used until an Anthropic key is configured)
   const aiMessages = [
     { role: "system", content: SYSTEM_PROMPT },
     ...messages.slice(0, -1).slice(-8),
-    {
-      role: "user",
-      content: `<context>\n${contextBlock}\n</context>\n\nUser question: ${lastUser.content}`,
-    },
+    { role: "user", content: finalUserContent },
   ];
 
   const stream = (await env.AI.run(env.AI_MODEL as keyof AiModels, {
@@ -392,14 +418,69 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
     max_tokens: 1500,
   } as never)) as ReadableStream;
 
-  return new Response(stream, {
-    headers: {
-      "content-type": "text/event-stream",
-      "cache-control": "no-cache",
-      "x-mcp-meraki-hits": String(extractHitCount(merakiResults)),
-      "x-mcp-catalyst-hits": String(extractHitCount(catalystResults)),
-    },
-  });
+  return new Response(stream, { headers: sseHeaders });
+}
+
+/**
+ * Stream a Claude reply re-encoded as the `data: {"response": "..."}` SSE
+ * lines the browser client already parses (same shape Workers AI emits).
+ */
+function claudeChatResponse(
+  env: Env,
+  ctx: ExecutionContext,
+  history: ChatMessage[],
+  finalUserContent: string,
+  headers: Record<string, string>,
+): Response {
+  const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const turns = toAnthropicTurns(history.slice(0, -1), 8);
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+  const send = (text: string) =>
+    writer.write(encoder.encode(`data: ${JSON.stringify({ response: text })}\n\n`));
+
+  const pump = (async () => {
+    try {
+      const stream = anthropic.messages.stream({
+        model: env.ANTHROPIC_MODEL || ANTHROPIC_MODEL_DEFAULT,
+        max_tokens: 16000,
+        thinking: { type: "adaptive" },
+        system: SYSTEM_PROMPT,
+        messages: [...turns, { role: "user", content: finalUserContent }],
+      });
+
+      for await (const event of stream) {
+        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          await send(event.delta.text);
+        }
+      }
+
+      const final = await stream.finalMessage();
+      if (final.stop_reason === "refusal") {
+        await send("\n\n**The model declined this request.**");
+      }
+    } catch (err) {
+      try {
+        await send(
+          `\n\n**Model error:** ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } catch {
+        /* client gone */
+      }
+    } finally {
+      try {
+        await writer.write(encoder.encode("data: [DONE]\n\n"));
+        await writer.close();
+      } catch {
+        /* client gone */
+      }
+    }
+  })();
+  ctx.waitUntil(pump);
+
+  return new Response(readable, { headers });
 }
 
 interface McpToolResult {
