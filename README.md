@@ -1,6 +1,6 @@
 # Cisco API Navigator
 
-A beautiful chat interface for Cisco's [DevNet Content Search MCP server](https://github.com/CiscoDevNet/devnet-content-search-mcp), running on Cloudflare Workers + Workers AI.
+A beautiful chat interface for Cisco's [DevNet Content Search MCP server](https://github.com/CiscoDevNet/devnet-content-search-mcp), running on Cloudflare Workers with Claude Opus 4.8.
 
 > Live: **https://devnet-mcp.clydeford.net**
 
@@ -14,7 +14,8 @@ Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded
   - `Meraki-API-Doc-Search`
   - `CatalystCenter-API-Doc-Search`
 - Results are stuffed into the prompt as structured context.
-- A small Workers AI model (`@cf/meta/llama-3.3-70b-instruct-fp8-fast` by default) writes the conversational reply, citing operation IDs and doc URLs.
+- **Deterministic snippet builder** — the MCP server returns docs, not code, so the worker builds the curl example itself from each Meraki hit (`src/snippet-builder.ts`): exact method + templated path, correct headers, and a strict-JSON body extracted from the spec's request example. The model is instructed to reproduce the snippet verbatim and only change JSON values — it never writes curl or JSON structure freehand.
+- **Claude Opus 4.8** (via the Anthropic API) writes the conversational reply, citing operation IDs and doc URLs. If no `ANTHROPIC_API_KEY` secret is configured, the worker falls back to Workers AI (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`).
 - The response streams token-by-token to the browser over SSE.
 
 ## UI features
@@ -34,7 +35,7 @@ Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded
 | Layer       | Tech                                                                 |
 | ----------- | -------------------------------------------------------------------- |
 | Runtime     | Cloudflare Workers                                                   |
-| LLM         | Workers AI — `@cf/meta/llama-3.3-70b-instruct-fp8-fast`              |
+| LLM         | Claude Opus 4.8 (`@anthropic-ai/sdk`); Workers AI llama 3.3 fallback |
 | Knowledge   | Cisco DevNet MCP server (hosted, public)                             |
 | Frontend    | Vanilla JS + `marked` + `highlight.js` + `DOMPurify` (all CDN)       |
 | Styling     | Hand-rolled CSS, Inter + JetBrains Mono                              |
@@ -45,11 +46,16 @@ Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded
 ```
 .
 ├── src/
-│   └── index.ts          # Worker entry: /api/chat, MCP client, AI streaming
+│   ├── index.ts             # Worker entry: /api/chat, MCP client, AI streaming
+│   ├── snippet-builder.ts   # Deterministic curl snippets from MCP spec excerpts
+│   ├── chat-history.ts      # History shaping for the Anthropic Messages API
+│   └── upstream-body.ts     # Body forwarding rules for Meraki pushes
 ├── public/
-│   ├── index.html        # Chat shell
-│   ├── styles.css        # Meraki theme + animations
-│   └── app.js            # Chat client (streaming, markdown, copy, export)
+│   ├── index.html           # Chat shell
+│   ├── styles.css           # Meraki theme + animations
+│   ├── app.js               # Chat client (streaming, markdown, copy, export)
+│   ├── detect-meraki-call.js  # Snippet → {method, path, body} for Push to DEV
+│   └── parse-tolerant-json.js # Auto-repair of comment/quoting bugs in bodies
 ├── wrangler.jsonc        # Worker config + AI binding + custom domain
 ├── package.json
 ├── tsconfig.json
@@ -63,7 +69,15 @@ npm install
 npx wrangler dev
 ```
 
-Then open `http://localhost:8787`. The dev server proxies Workers AI through your account, so the chat works locally exactly like prod.
+Then open `http://localhost:8787`. To use Claude locally, put your key in a (gitignored) `.dev.vars` file:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Without it, the dev server proxies Workers AI through your Cloudflare account instead.
+
+Run the test suite with `npm test`, or `npm run test:report` to regenerate `test-report.html`.
 
 ## Deployment
 
@@ -75,7 +89,13 @@ npx wrangler deploy
 
 The custom domain `devnet-mcp.clydeford.net` is declared in `wrangler.jsonc` — Wrangler will attach it on first deploy as long as `clydeford.net` lives on this Cloudflare account.
 
-To swap models, edit `vars.AI_MODEL` in `wrangler.jsonc`. Any Workers AI text-generation model with streaming will work.
+To enable Claude in production, set the API key as a secret:
+
+```bash
+npx wrangler secret put ANTHROPIC_API_KEY
+```
+
+To swap Claude models, edit `vars.ANTHROPIC_MODEL` in `wrangler.jsonc` (e.g. `claude-sonnet-4-6` for a cheaper tier). The Workers AI fallback model is `vars.AI_MODEL`.
 
 ## How it works (short version)
 
@@ -84,8 +104,10 @@ To swap models, edit `vars.AI_MODEL` in `wrangler.jsonc`. Any Workers AI text-ge
  user prompt ───▶ │  Cloudflare Worker (/api/chat)     │
                   │                                    │
                   │   ① POST tools/call ×2 in parallel │ ──▶ devnet.cisco.com MCP
-                  │   ② build <context> block          │
-                  │   ③ env.AI.run(model, stream:true) │ ──▶ Workers AI
+                  │   ② build <context> block +        │
+                  │      deterministic curl snippets   │
+                  │   ③ stream Claude Opus 4.8         │ ──▶ api.anthropic.com
+                  │      (or Workers AI fallback)      │
                   │   ④ pipe SSE to client             │
                   └──────────────┬─────────────────────┘
                                  ▼
@@ -98,10 +120,12 @@ The MCP transport handshake (initialize → notifications/initialized → tools/
 
 ## Configuration knobs
 
-All in `wrangler.jsonc` under `vars`:
+All in `wrangler.jsonc` under `vars` (plus one secret):
 
 - `MCP_URL` — defaults to Cisco's public MCP endpoint.
-- `AI_MODEL` — any Workers AI text model that supports streaming.
+- `ANTHROPIC_MODEL` — Claude model for chat replies (default `claude-opus-4-8`).
+- `AI_MODEL` — Workers AI fallback model, used when no Anthropic key is set.
+- `ANTHROPIC_API_KEY` — secret (`wrangler secret put`); activates the Claude path.
 
 ## License
 
