@@ -71,6 +71,20 @@ for (const c of cases) {
 const FINDINGS = [
   {
     severity: "high",
+    title: "Assistant chose INBOUND firewall rules for LAN→internet traffic (Meraki 400 on dst_cidr)",
+    status: "fixed",
+    detail:
+      "For “SIP traffic to Microsoft subnets” the model generated updateNetworkApplianceFirewall" +
+      "InboundFirewallRules with public subnets in destCidr. Live DEV experiments proved the rule " +
+      "body itself is fine: Meraki rejects ANY public IPv4 destCidr on the inbound endpoint (it " +
+      "only accepts local VLAN(n).* destinations or 'any'), while the outbound l3FirewallRules " +
+      "endpoint accepts the exact same rule — including comma-separated CIDR lists with spaces, " +
+      "which were proven harmless. Fixed by adding firewall-direction guidance to the system " +
+      "prompt; probes now consistently generate the outbound endpoint.",
+    where: "src/index.ts (SYSTEM_PROMPT)",
+  },
+  {
+    severity: "high",
     title: "JSON bodies containing # / // comments were rejected (the reported push failures)",
     status: "fixed",
     detail:
