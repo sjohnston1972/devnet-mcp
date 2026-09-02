@@ -249,3 +249,75 @@ test("user-supplied key still works cross-origin (origin gate only applies to th
     spy.restore();
   }
 });
+
+test("rapid write calls from one IP are throttled with 429 once the budget is exhausted", async () => {
+  const spy = forbidUpstreamFetch();
+  try {
+    const ip = freshIp();
+    const statuses = [];
+    for (let i = 0; i < 7; i++) {
+      const req = makeRequest({
+        headers: { "cf-connecting-ip": ip }, // no Origin -> denied anyway, still exercises the limiter first
+        body: { method: "POST", path: "/api/v1/networks/{networkId}/devices", env: "dev", body: {} },
+      });
+      const res = await handleSandboxCall(req, baseEnv());
+      statuses.push(res.status);
+    }
+    assert.ok(statuses.includes(429), `expected a 429 among ${JSON.stringify(statuses)}`);
+    assert.equal(spy.wasCalled(), false);
+  } finally {
+    spy.restore();
+  }
+});
+
+test("every call emits one audit log line with the resolved target and outcome, and never the API key", async () => {
+  const fetchSpy = mockUpstreamFetch(200, { ok: true });
+  const originalLog = console.log;
+  const lines = [];
+  console.log = (...args) => lines.push(args.join(" "));
+  try {
+    const req = makeRequest({
+      headers: { "cf-connecting-ip": freshIp(), origin: "https://devnet-mcp.example.com" },
+      body: { method: "GET", path: "/api/v1/networks/{networkId}/devices", env: "dev" },
+    });
+    const res = await handleSandboxCall(req, baseEnv());
+    assert.equal(res.status, 200);
+    assert.equal(lines.length, 1, "exactly one audit line per call");
+
+    const entry = JSON.parse(lines[0]);
+    assert.equal(entry.event, "sandbox-call");
+    assert.equal(entry.endpoint, "/api/sandbox-call");
+    assert.equal(entry.method, "GET");
+    assert.equal(entry.env, "dev");
+    assert.equal(entry.resolvedNetworkId, "N_dev123");
+    assert.equal(entry.usedServerKey, true);
+    assert.equal(entry.outcome, "ok");
+    assert.equal(entry.status, 200);
+    assert.ok(!lines[0].includes("server-secret-key"), "the API key must never be logged");
+  } finally {
+    console.log = originalLog;
+    fetchSpy.restore();
+  }
+});
+
+test("a refused call also emits an audit line, recording the refusal outcome, not the API key", async () => {
+  const originalLog = console.log;
+  const lines = [];
+  console.log = (...args) => lines.push(args.join(" "));
+  try {
+    const req = makeRequest({
+      headers: { "cf-connecting-ip": freshIp() }, // no Origin -> denied
+      body: { method: "GET", path: "/api/v1/networks/{networkId}/devices", env: "dev" },
+    });
+    const res = await handleSandboxCall(req, baseEnv());
+    assert.equal(res.status, 403);
+    assert.equal(lines.length, 1);
+
+    const entry = JSON.parse(lines[0]);
+    assert.equal(entry.outcome, "denied-origin");
+    assert.equal(entry.status, 403);
+    assert.ok(!lines[0].includes("server-secret-key"));
+  } finally {
+    console.log = originalLog;
+  }
+});

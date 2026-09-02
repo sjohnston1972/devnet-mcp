@@ -36,6 +36,7 @@ Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded
 
 - **The server key is same-origin only.** If a request omits `x-user-meraki-key` (i.e. it wants to use the server's own secret), it must carry an `Origin` or `Referer` header matching this Worker's own origin. No `Origin`/`Referer` at all -- e.g. a bare `curl` -- is treated as cross-origin and refused (`403`), not trusted by default.
 - **The server key can never be retargeted.** `x-user-meraki-org` / `x-user-meraki-network` / `x-user-meraki-serial` are only honored when the caller also supplies their own `x-user-meraki-key`. When the server key is in play, a value in any of those headers that disagrees with the server's configured DEV/PROD slot is an explicit `403` refusal -- never silently ignored or coerced to the configured value. Fails closed too: if the server's org/network isn't configured, the call 422s instead of resolving to nothing.
+- **Rate-limited and audited.** A per-IP sliding-window limiter throttles writes far more tightly than reads (`429` once exhausted). Every call -- allowed or refused -- emits one structured `console.log` line (visible via `npx wrangler tail`) with the timestamp, method, path, resolved env/org/network, whether the server key was used, caller IP, outcome, and status. The API key and request/response bodies are never logged.
 
 A caller supplying their own `x-user-meraki-key` is unaffected by the checks above -- they're only ever driving their own credential against their own org/network/device.
 

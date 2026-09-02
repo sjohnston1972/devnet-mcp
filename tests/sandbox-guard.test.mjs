@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isSameOrigin, resolveTarget } from "../src/sandbox-guard.ts";
+import { isSameOrigin, resolveTarget, SlidingWindowRateLimiter } from "../src/sandbox-guard.ts";
 
 const serverConfig = { orgId: "111111", networkId: "N_dev123", serial: "Q2XX-DEV1-SER1" };
 
@@ -85,4 +85,31 @@ test("isSameOrigin: Referer used when Origin is absent", () => {
 test("isSameOrigin: fails closed when neither Origin nor Referer is present (raw curl)", () => {
   const req = new Request("https://app.example.com/api/sandbox-call", { method: "POST" });
   assert.equal(isSameOrigin(req, new URL("https://app.example.com/api/sandbox-call")), false);
+});
+
+test("SlidingWindowRateLimiter: allows up to the limit, then blocks", () => {
+  let now = 0;
+  const limiter = new SlidingWindowRateLimiter(3, 1000, () => now);
+  assert.equal(limiter.check("ip1"), true);
+  assert.equal(limiter.check("ip1"), true);
+  assert.equal(limiter.check("ip1"), true);
+  assert.equal(limiter.check("ip1"), false, "4th call within the window must be blocked");
+});
+
+test("SlidingWindowRateLimiter: window slides, so old hits expire", () => {
+  let now = 0;
+  const limiter = new SlidingWindowRateLimiter(2, 1000, () => now);
+  assert.equal(limiter.check("ip1"), true);
+  assert.equal(limiter.check("ip1"), true);
+  assert.equal(limiter.check("ip1"), false);
+  now = 1500; // past the 1000ms window
+  assert.equal(limiter.check("ip1"), true, "hits outside the window no longer count");
+});
+
+test("SlidingWindowRateLimiter: separate keys have separate budgets", () => {
+  let now = 0;
+  const limiter = new SlidingWindowRateLimiter(1, 1000, () => now);
+  assert.equal(limiter.check("ip1"), true);
+  assert.equal(limiter.check("ip2"), true, "a different key is not affected by ip1's budget");
+  assert.equal(limiter.check("ip1"), false);
 });

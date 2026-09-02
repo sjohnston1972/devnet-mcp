@@ -17,7 +17,12 @@ import {
 } from "./chat-request-guard.ts";
 import { SlidingCounter } from "./rate-limiter.ts";
 import { sameOrigin } from "./security.ts";
-import { resolveTarget, isSameOrigin } from "./sandbox-guard.ts";
+import {
+  resolveTarget,
+  isSameOrigin,
+  SlidingWindowRateLimiter,
+  auditLog,
+} from "./sandbox-guard.ts";
 
 interface Env {
   AI: Ai;
@@ -227,26 +232,76 @@ interface SandboxCallBody {
   env?: "dev" | "prod";
 }
 
+// Per-IP sliding-window budgets for /api/sandbox-call (issue #11). Writes
+// get a much tighter budget than reads. Module-level singletons: state
+// lives for the lifetime of the isolate, which is a reasonable "good
+// enough" bound here without adding a Durable Object / KV binding.
+const sandboxWriteLimiter = new SlidingWindowRateLimiter(5, 60_000);
+const sandboxReadLimiter = new SlidingWindowRateLimiter(30, 60_000);
+
 export async function handleSandboxCall(request: Request, env: Env): Promise<Response> {
   const selfUrl = new URL(request.url);
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+
+  // Populated as the request is validated/resolved, so the audit line
+  // logged from `finish()` always reflects the fullest context available
+  // at the point of refusal or completion.
+  let method = "unknown";
+  let rawPath = "unknown";
+  let targetEnv: "dev" | "prod" | null = null;
+  let usingServerKey = false;
+  let orgId: string | null = null;
+  let netId: string | null = null;
+
+  // Logs one audit line (issue #11: endpoint, resolved target, outcome --
+  // never the API key or request/response bodies) and returns the
+  // response. Used for every refusal/error exit; the final successful
+  // proxy response logs+returns itself since its HTTP status intentionally
+  // stays 200 regardless of the upstream status (see below).
+  const finish = (status: number, outcome: string, body: Record<string, unknown>): Response => {
+    auditLog({
+      ts: new Date().toISOString(),
+      endpoint: "/api/sandbox-call",
+      method,
+      path: rawPath,
+      env: targetEnv,
+      resolvedOrgId: orgId,
+      resolvedNetworkId: netId,
+      usedServerKey: usingServerKey,
+      ip,
+      outcome,
+      status,
+    });
+    return Response.json(body, { status });
+  };
 
   let payload: SandboxCallBody;
   try {
     payload = await request.json();
   } catch {
-    return Response.json({ error: "invalid JSON" }, { status: 400 });
+    return finish(400, "invalid-json", { error: "invalid JSON" });
   }
 
-  const method = (payload.method || "GET").toUpperCase();
+  method = (payload.method || "GET").toUpperCase();
+  rawPath = typeof payload.path === "string" ? payload.path : "unknown";
+
   if (!ALLOWED_METHODS.has(method)) {
-    return Response.json({ error: `method ${method} not allowed` }, { status: 400 });
+    return finish(400, "bad-method", { error: `method ${method} not allowed` });
   }
 
   if (!payload.path || typeof payload.path !== "string") {
-    return Response.json({ error: "path is required" }, { status: 400 });
+    return finish(400, "missing-path", { error: "path is required" });
   }
 
-  const targetEnv: "dev" | "prod" = payload.env === "prod" ? "prod" : "dev";
+  // Issue #11: rate-limit before doing anything else. Writes get a much
+  // tighter budget than reads.
+  const isWrite = method !== "GET";
+  const limiter = isWrite ? sandboxWriteLimiter : sandboxReadLimiter;
+  if (!limiter.check(ip)) {
+    return finish(429, "rate-limited", { error: "rate limit exceeded, slow down" });
+  }
+
+  targetEnv = payload.env === "prod" ? "prod" : "dev";
   const slot = targetEnv === "prod" ? prodSlot(env) : devSlot(env);
 
   const userKey = request.headers.get("x-user-meraki-key")?.trim();
@@ -254,25 +309,24 @@ export async function handleSandboxCall(request: Request, env: Env): Promise<Res
   const userNet = request.headers.get("x-user-meraki-network")?.trim();
   const userSerial = request.headers.get("x-user-meraki-serial")?.trim();
   const apiKey = userKey || env.MERAKI_SANDBOX_API_KEY;
+  usingServerKey = !userKey;
 
   if (!apiKey) {
-    return Response.json(
-      {
-        error:
-          "no Meraki API key configured. Set MERAKI_SANDBOX_API_KEY via `wrangler secret put`.",
-      },
-      { status: 503 },
-    );
+    // Fails closed: no key at all (neither the caller's nor the server's
+    // configured secret) means no upstream call, full stop.
+    return finish(503, "no-key", {
+      error:
+        "no Meraki API key configured. Set MERAKI_SANDBOX_API_KEY via `wrangler secret put`.",
+    });
   }
 
   // Issue #9: the server's own Meraki key may only ever be driven by the
   // app's own page. A caller bringing their own key is fine -- they can
   // only ever reach their own org with their own credential.
-  if (!userKey && !isSameOrigin(request, selfUrl)) {
-    return Response.json(
-      { error: "cross-origin callers must supply their own x-user-meraki-key" },
-      { status: 403 },
-    );
+  if (usingServerKey && !isSameOrigin(request, selfUrl)) {
+    return finish(403, "denied-origin", {
+      error: "cross-origin callers must supply their own x-user-meraki-key",
+    });
   }
 
   // Issue #10: when the server key is in play, x-user-meraki-org /
@@ -286,29 +340,25 @@ export async function handleSandboxCall(request: Request, env: Env): Promise<Res
     { orgId: merakiOrgId(env), networkId: slot.networkId, serial: slot.serial },
   );
   if (!decision.ok) {
-    return Response.json({ error: decision.reason ?? "override rejected" }, { status: 403 });
+    return finish(403, "denied-override", { error: decision.reason ?? "override rejected" });
   }
 
-  const orgId = decision.orgId;
-  const netId = decision.netId;
+  orgId = decision.orgId;
+  netId = decision.netId;
   const serial = decision.serial;
 
   const { resolvedPath, missing } = resolvePath(payload.path, { orgId, netId, serial });
   if (missing.length > 0) {
-    return Response.json(
-      {
-        error: `path needs values not configured for this sandbox: ${missing.join(", ")}`,
-        unresolved: missing,
-      },
-      { status: 422 },
-    );
+    // Fails closed: an unconfigured org/network slot never falls back to
+    // "allow anyway" -- it 422s instead of silently substituting nothing.
+    return finish(422, "unresolved", {
+      error: `path needs values not configured for this sandbox: ${missing.join(", ")}`,
+      unresolved: missing,
+    });
   }
 
   if (!resolvedPath.startsWith("/api/v1/") && !resolvedPath.startsWith("/v1/")) {
-    return Response.json(
-      { error: "only /api/v1/* paths are permitted" },
-      { status: 400 },
-    );
+    return finish(400, "bad-path-prefix", { error: "only /api/v1/* paths are permitted" });
   }
 
   const targetUrl = merakiBase(env) + resolvedPath.replace(/^\/api\/v1/, "").replace(/^\/v1/, "");
@@ -333,10 +383,9 @@ export async function handleSandboxCall(request: Request, env: Env): Promise<Res
   try {
     response = await fetch(targetUrl, init);
   } catch (err) {
-    return Response.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 502 },
-    );
+    return finish(502, "upstream-error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   const elapsedMs = Date.now() - sentAt;
@@ -354,6 +403,24 @@ export async function handleSandboxCall(request: Request, env: Env): Promise<Res
     if (v) interestingHeaders[h] = v;
   }
 
+  auditLog({
+    ts: new Date().toISOString(),
+    endpoint: "/api/sandbox-call",
+    method,
+    path: rawPath,
+    env: targetEnv,
+    resolvedOrgId: orgId,
+    resolvedNetworkId: netId,
+    usedServerKey: usingServerKey,
+    ip,
+    outcome: response.ok ? "ok" : "upstream-error-status",
+    status: response.status,
+  });
+
+  // Intentionally always HTTP 200 here (matches prior behavior): the real
+  // upstream status travels in the JSON body so the app can render
+  // Meraki's actual response, including its errors, without the fetch()
+  // itself throwing on a non-2xx.
   return Response.json({
     ok: response.ok,
     status: response.status,

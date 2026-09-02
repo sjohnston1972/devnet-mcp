@@ -122,3 +122,61 @@ export function isSameOrigin(request: Request, selfUrl: URL): boolean {
 
   return false;
 }
+
+/**
+ * A small in-memory sliding-window rate limiter, keyed by an arbitrary
+ * string (here, client IP). Deliberately simple: per-isolate state is a
+ * reasonable "good enough" bound for abuse on a Worker without pulling in
+ * a Durable Object / KV binding for this.
+ */
+export class SlidingWindowRateLimiter {
+  private readonly limit: number;
+  private readonly windowMs: number;
+  private readonly now: () => number;
+  private hits = new Map<string, number[]>();
+
+  constructor(limit: number, windowMs: number, now: () => number = Date.now) {
+    this.limit = limit;
+    this.windowMs = windowMs;
+    this.now = now;
+  }
+
+  /** Returns true (and records the hit) if under budget; false if not. */
+  check(key: string): boolean {
+    const now = this.now();
+    const cutoff = now - this.windowMs;
+    const recent = (this.hits.get(key) ?? []).filter((t) => t > cutoff);
+
+    if (recent.length >= this.limit) {
+      this.hits.set(key, recent);
+      return false;
+    }
+
+    recent.push(now);
+    this.hits.set(key, recent);
+    return true;
+  }
+}
+
+export interface SandboxAuditEntry {
+  ts: string;
+  endpoint: "/api/sandbox-call";
+  method: string;
+  path: string;
+  env: "dev" | "prod" | null;
+  resolvedOrgId: string | null;
+  resolvedNetworkId: string | null;
+  usedServerKey: boolean;
+  ip: string;
+  outcome: string;
+  status: number;
+}
+
+/**
+ * Emit one structured audit line for a /api/sandbox-call request (issue
+ * #11). Never pass the API key, request body, or response body in here --
+ * this is queryable via `wrangler tail` and must stay credential-free.
+ */
+export function auditLog(entry: SandboxAuditEntry): void {
+  console.log(JSON.stringify({ event: "sandbox-call", ...entry }));
+}
