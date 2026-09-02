@@ -15,6 +15,7 @@ import {
   validateMessages,
   MAX_BODY_BYTES,
 } from "./chat-request-guard.ts";
+import { SlidingCounter } from "./rate-limiter.ts";
 
 interface Env {
   AI: Ai;
@@ -34,6 +35,7 @@ interface Env {
   MERAKI_PROD_NETWORK_NAME?: string;
   MERAKI_DEV_DEVICE_SERIAL?: string;
   MERAKI_PROD_DEVICE_SERIAL?: string;
+  CHAT_RATE_LIMIT_PER_MINUTE?: string;
 }
 
 interface ChatMessage {
@@ -67,6 +69,20 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/chat" && request.method === "POST") {
+      const rate = chatRateHits.check(
+        clientIp(request),
+        chatRateLimitPerMinute(env),
+        RATE_LIMIT_WINDOW_MS,
+      );
+      if (!rate.allowed) {
+        return Response.json(
+          { error: "rate limited" },
+          {
+            status: 429,
+            headers: { "retry-after": String(rate.retryAfterSeconds) },
+          },
+        );
+      }
       return handleChat(request, env, ctx);
     }
 
@@ -89,6 +105,24 @@ export default {
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
+
+function clientIp(request: Request): string {
+  return request.headers.get("cf-connecting-ip") ?? "anon";
+}
+
+// Portable in-isolate rate limiter — see rate-limiter.ts for why this is
+// approximate rather than a global limit (no Rate Limiting binding or KV
+// namespace is configured in wrangler.jsonc for this project).
+const chatRateHits = new SlidingCounter();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_DEFAULT_PER_MINUTE = 20;
+
+function chatRateLimitPerMinute(env: Env): number {
+  const raw = env.CHAT_RATE_LIMIT_PER_MINUTE;
+  if (!raw) return RATE_LIMIT_DEFAULT_PER_MINUTE;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : RATE_LIMIT_DEFAULT_PER_MINUTE;
+}
 
 const SANDBOX_BASE_DEFAULT = "https://api.meraki.com/api/v1";
 const ANTHROPIC_MODEL_DEFAULT = "claude-opus-4-8";

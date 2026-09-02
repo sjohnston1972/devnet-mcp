@@ -25,6 +25,11 @@
     "MCP_URL": "https://devnet.cisco.com/v1/foundation-search-mcp/mcp",
     "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     "ANTHROPIC_MODEL": "claude-opus-4-8",
+    // Per-IP requests/minute allowed on POST /api/chat. Enforced by an
+    // in-isolate counter (src/rate-limiter.ts) — no Rate Limiting binding
+    // or KV namespace is configured here, so this is approximate across
+    // edge locations, not a global limit. See src/rate-limiter.ts.
+    "CHAT_RATE_LIMIT_PER_MINUTE": "20",
     "MERAKI_SANDBOX_BASE": "https://api.meraki.com/api/v1",
     "MERAKI_SANDBOX_ORG_ID": "923103",
     "MERAKI_DEV_NAME": "Your development org",
