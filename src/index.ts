@@ -1,14 +1,20 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { upstreamBodyFor } from "./upstream-body";
-import { buildCurlSnippet } from "./snippet-builder";
-import { toAnthropicTurns, buildFallbackMessages } from "./chat-history";
+import { upstreamBodyFor } from "./upstream-body.ts";
+import { buildCurlSnippet } from "./snippet-builder.ts";
+import { toAnthropicTurns, buildFallbackMessages } from "./chat-history.ts";
 import {
   openMcpSession,
   mcpRequest,
   runMcpSearches,
   type McpToolResult,
-} from "./mcp-session";
-import { resolvePath } from "./resolve-path";
+} from "./mcp-session.ts";
+import { resolvePath } from "./resolve-path.ts";
+import {
+  checkContentLength,
+  readLimitedText,
+  validateMessages,
+  MAX_BODY_BYTES,
+} from "./chat-request-guard.ts";
 
 interface Env {
   AI: Ai;
@@ -339,11 +345,30 @@ async function handleChat(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
+  // Reject on the declared size before reading anything...
+  const lengthCheck = checkContentLength(request.headers.get("content-length"), MAX_BODY_BYTES);
+  if (!lengthCheck.ok) {
+    return Response.json({ error: lengthCheck.error }, { status: lengthCheck.status });
+  }
+
+  // ...and enforce the same cap while streaming the body, since a client can
+  // omit or lie about Content-Length. Nothing downstream (MCP, Anthropic,
+  // Workers AI) is called until this returns ok.
+  const bodyRead = await readLimitedText(request.body, MAX_BODY_BYTES);
+  if (!bodyRead.ok) {
+    return Response.json({ error: bodyRead.error }, { status: bodyRead.status });
+  }
+
   let body: ChatRequest;
   try {
-    body = await request.json();
+    body = bodyRead.text ? JSON.parse(bodyRead.text) : {};
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const messagesCheck = validateMessages(body.messages);
+  if (!messagesCheck.ok) {
+    return Response.json({ error: messagesCheck.error }, { status: messagesCheck.status });
   }
 
   const messages = body.messages ?? [];
