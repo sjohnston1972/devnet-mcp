@@ -20,3 +20,23 @@ export function toAnthropicTurns(
   }
   return turns;
 }
+
+/**
+ * Build the message list for the Workers AI fallback path: exactly one
+ * server-controlled leading system turn, client history filtered down to
+ * user/assistant via toAnthropicTurns (so a client-injected `system` turn
+ * or an assistant-first history can never reach the model), and the
+ * server-built final user turn trailing.
+ */
+export function buildFallbackMessages(
+  systemPrompt: string,
+  history: ChatTurn[],
+  finalUserContent: string,
+  maxTurns: number,
+): Array<{ role: "system" | "user" | "assistant"; content: string }> {
+  return [
+    { role: "system", content: systemPrompt },
+    ...toAnthropicTurns(history, maxTurns),
+    { role: "user", content: finalUserContent },
+  ];
+}

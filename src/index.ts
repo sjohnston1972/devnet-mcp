@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { upstreamBodyFor } from "./upstream-body";
 import { buildCurlSnippet } from "./snippet-builder";
-import { toAnthropicTurns } from "./chat-history";
+import { toAnthropicTurns, buildFallbackMessages } from "./chat-history";
 import {
   openMcpSession,
   mcpRequest,
@@ -385,11 +385,12 @@ async function handleChat(
   }
 
   // Fallback: Workers AI (used until an Anthropic key is configured)
-  const aiMessages = [
-    { role: "system", content: SYSTEM_PROMPT },
-    ...messages.slice(0, -1).slice(-8),
-    { role: "user", content: finalUserContent },
-  ];
+  const aiMessages = buildFallbackMessages(
+    SYSTEM_PROMPT,
+    messages.slice(0, -1),
+    finalUserContent,
+    8,
+  );
 
   const stream = (await env.AI.run(env.AI_MODEL as keyof AiModels, {
     messages: aiMessages,
