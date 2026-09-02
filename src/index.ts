@@ -16,6 +16,7 @@ import {
   MAX_BODY_BYTES,
 } from "./chat-request-guard.ts";
 import { SlidingCounter } from "./rate-limiter.ts";
+import { sameOrigin } from "./security.ts";
 
 interface Env {
   AI: Ai;
@@ -68,6 +69,18 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // Same-origin gate for every JSON API route (chat, sandbox-call,
+    // mcp-status, sandbox-info). Defense-in-depth against browser-driven
+    // cross-site abuse; see security.ts for what this does and does not
+    // stop. /api/health and static asset serving are intentionally left
+    // open (see the PR/issue #8 notes for why).
+    if (isApiRoute(url.pathname) && !sameOrigin(request)) {
+      return Response.json(
+        { error: "cross-origin requests to this API are not allowed" },
+        { status: 403 },
+      );
+    }
+
     if (url.pathname === "/api/chat" && request.method === "POST") {
       const rate = chatRateHits.check(
         clientIp(request),
@@ -105,6 +118,15 @@ export default {
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
+
+function isApiRoute(pathname: string): boolean {
+  return (
+    pathname === "/api/chat" ||
+    pathname === "/api/sandbox-call" ||
+    pathname === "/api/mcp-status" ||
+    pathname === "/api/sandbox-info"
+  );
+}
 
 function clientIp(request: Request): string {
   return request.headers.get("cf-connecting-ip") ?? "anon";
