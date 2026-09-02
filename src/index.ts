@@ -17,7 +17,7 @@ import {
 } from "./chat-request-guard.ts";
 import { SlidingCounter } from "./rate-limiter.ts";
 import { sameOrigin } from "./security.ts";
-import { isSameOrigin } from "./sandbox-guard.ts";
+import { resolveTarget, isSameOrigin } from "./sandbox-guard.ts";
 
 interface Env {
   AI: Ai;
@@ -275,9 +275,23 @@ export async function handleSandboxCall(request: Request, env: Env): Promise<Res
     );
   }
 
-  const orgId = userOrg || merakiOrgId(env);
-  const netId = userNet || slot.networkId;
-  const serial = userSerial || slot.serial;
+  // Issue #10: when the server key is in play, x-user-meraki-org /
+  // x-user-meraki-network / x-user-meraki-serial must never be able to
+  // retarget it. A mismatched override is refused outright here -- never
+  // sanitised or silently coerced to the server's value. Do not
+  // "simplify" this away.
+  const decision = resolveTarget(
+    Boolean(userKey),
+    { org: userOrg, net: userNet, serial: userSerial },
+    { orgId: merakiOrgId(env), networkId: slot.networkId, serial: slot.serial },
+  );
+  if (!decision.ok) {
+    return Response.json({ error: decision.reason ?? "override rejected" }, { status: 403 });
+  }
+
+  const orgId = decision.orgId;
+  const netId = decision.netId;
+  const serial = decision.serial;
 
   const { resolvedPath, missing } = resolvePath(payload.path, { orgId, netId, serial });
   if (missing.length > 0) {

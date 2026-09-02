@@ -16,9 +16,11 @@ function baseEnv(overrides = {}) {
     MERAKI_DEV_NAME: "Development",
     MERAKI_DEV_NETWORK_ID: "N_dev123",
     MERAKI_DEV_NETWORK_NAME: "DEV",
+    MERAKI_DEV_DEVICE_SERIAL: "Q2XX-DEV1-SER1",
     MERAKI_PROD_NAME: "Production",
     MERAKI_PROD_NETWORK_ID: "N_prod123",
     MERAKI_PROD_NETWORK_NAME: "PROD",
+    MERAKI_PROD_DEVICE_SERIAL: "Q2XX-PROD-SER1",
     ...overrides,
   };
 }
@@ -116,6 +118,111 @@ test("legitimate in-app flow: same-origin, server key -> succeeds", async () => 
     assert.equal(res.status, 200);
     const json = await res.json();
     assert.equal(json.usedUserKey, false);
+    assert.equal(spy.calls.length, 1);
+  } finally {
+    spy.restore();
+  }
+});
+
+test("same-origin call supplying a DIFFERENT org id is refused, not coerced; no upstream call", async () => {
+  const spy = forbidUpstreamFetch();
+  try {
+    const req = makeRequest({
+      headers: {
+        "cf-connecting-ip": freshIp(),
+        origin: "https://devnet-mcp.example.com",
+        "x-user-meraki-org": "999999", // differs from configured 111111
+      },
+      body: { method: "GET", path: "/api/v1/organizations/{organizationId}/networks", env: "dev" },
+    });
+    const res = await handleSandboxCall(req, baseEnv());
+    assert.equal(res.status, 403);
+    const json = await res.json();
+    assert.match(json.error, /organization/);
+    assert.equal(spy.wasCalled(), false, "org override must never reach the upstream Meraki API");
+  } finally {
+    spy.restore();
+  }
+});
+
+test("same-origin call supplying a DIFFERENT network id is refused, not coerced; no upstream call", async () => {
+  const spy = forbidUpstreamFetch();
+  try {
+    const req = makeRequest({
+      headers: {
+        "cf-connecting-ip": freshIp(),
+        origin: "https://devnet-mcp.example.com",
+        "x-user-meraki-network": "N_someone_elses_network",
+      },
+      body: { method: "GET", path: "/api/v1/networks/{networkId}/devices", env: "dev" },
+    });
+    const res = await handleSandboxCall(req, baseEnv());
+    assert.equal(res.status, 403);
+    const json = await res.json();
+    assert.match(json.error, /network/);
+    assert.equal(spy.wasCalled(), false, "network override must never reach the upstream Meraki API");
+  } finally {
+    spy.restore();
+  }
+});
+
+test("same-origin call supplying a DIFFERENT device serial is refused, not coerced; no upstream call", async () => {
+  const spy = forbidUpstreamFetch();
+  try {
+    const req = makeRequest({
+      headers: {
+        "cf-connecting-ip": freshIp(),
+        origin: "https://devnet-mcp.example.com",
+        "x-user-meraki-serial": "Q2XX-SOME-OTHR",
+      },
+      body: { method: "GET", path: "/api/v1/devices/{serial}", env: "dev" },
+    });
+    const res = await handleSandboxCall(req, baseEnv());
+    assert.equal(res.status, 403);
+    const json = await res.json();
+    assert.match(json.error, /device/);
+    assert.equal(spy.wasCalled(), false, "serial override must never reach the upstream Meraki API");
+  } finally {
+    spy.restore();
+  }
+});
+
+test("with the allow-config absent (no server org id configured), the request is refused, not defaulted", async () => {
+  const spy = forbidUpstreamFetch();
+  try {
+    const req = makeRequest({
+      headers: { "cf-connecting-ip": freshIp(), origin: "https://devnet-mcp.example.com" },
+      body: { method: "GET", path: "/api/v1/organizations/{organizationId}/networks", env: "dev" },
+    });
+    const env = baseEnv({ MERAKI_SANDBOX_ORG_ID: "" });
+    const res = await handleSandboxCall(req, env);
+    assert.equal(res.status, 422);
+    const json = await res.json();
+    assert.ok(Array.isArray(json.unresolved) && json.unresolved.length > 0);
+    assert.equal(spy.wasCalled(), false, "missing config must fail closed, never fall back permissively");
+  } finally {
+    spy.restore();
+  }
+});
+
+test("user-supplied key may target their own org/network even cross-origin", async () => {
+  const spy = mockUpstreamFetch(200, { ok: true });
+  try {
+    const req = makeRequest({
+      headers: {
+        "cf-connecting-ip": freshIp(),
+        origin: "https://some-other-app.example.com",
+        "x-user-meraki-key": "user-own-key",
+        "x-user-meraki-org": "999999",
+        "x-user-meraki-network": "N_users_own_network",
+      },
+      body: { method: "GET", path: "/api/v1/networks/{networkId}/devices", env: "dev" },
+    });
+    const res = await handleSandboxCall(req, baseEnv());
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    assert.equal(json.usedUserKey, true);
+    assert.equal(json.networkId, "N_users_own_network");
     assert.equal(spy.calls.length, 1);
   } finally {
     spy.restore();

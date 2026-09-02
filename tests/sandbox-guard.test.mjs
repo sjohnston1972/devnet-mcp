@@ -1,6 +1,62 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isSameOrigin } from "../src/sandbox-guard.ts";
+import { isSameOrigin, resolveTarget } from "../src/sandbox-guard.ts";
+
+const serverConfig = { orgId: "111111", networkId: "N_dev123", serial: "Q2XX-DEV1-SER1" };
+
+test("resolveTarget: server key + no override headers uses the configured slot", () => {
+  const d = resolveTarget(false, {}, serverConfig);
+  assert.equal(d.ok, true);
+  assert.equal(d.orgId, "111111");
+  assert.equal(d.netId, "N_dev123");
+});
+
+test("resolveTarget: server key + mismatched org header is rejected, not coerced", () => {
+  const d = resolveTarget(false, { org: "999999" }, serverConfig);
+  assert.equal(d.ok, false);
+  assert.equal(d.orgId, "");
+  assert.match(d.reason, /organization/);
+});
+
+test("resolveTarget: server key + mismatched network header is rejected, not coerced", () => {
+  const d = resolveTarget(false, { net: "N_other" }, serverConfig);
+  assert.equal(d.ok, false);
+  assert.equal(d.netId, "");
+  assert.match(d.reason, /network/);
+});
+
+test("resolveTarget: server key + org header equal to configured value is a no-op, not an error", () => {
+  const d = resolveTarget(false, { org: "111111", net: "N_dev123" }, serverConfig);
+  assert.equal(d.ok, true);
+  assert.equal(d.orgId, "111111");
+  assert.equal(d.netId, "N_dev123");
+});
+
+test("resolveTarget: server key + mismatched serial header is rejected, not coerced", () => {
+  const d = resolveTarget(false, { serial: "Q2XX-OTHR-DEV2" }, serverConfig);
+  assert.equal(d.ok, false);
+  assert.equal(d.serial, "");
+  assert.match(d.reason, /device/);
+});
+
+test("resolveTarget: server key fails closed when server config is unset and a header is sent", () => {
+  const d = resolveTarget(false, { org: "999999" }, { orgId: "", networkId: "" });
+  assert.equal(d.ok, false);
+});
+
+test("resolveTarget: user-supplied key may target their own org/network", () => {
+  const d = resolveTarget(true, { org: "999999", net: "N_other" }, serverConfig);
+  assert.equal(d.ok, true);
+  assert.equal(d.orgId, "999999");
+  assert.equal(d.netId, "N_other");
+});
+
+test("resolveTarget: user-supplied key with no override headers falls back to server config", () => {
+  const d = resolveTarget(true, {}, serverConfig);
+  assert.equal(d.ok, true);
+  assert.equal(d.orgId, "111111");
+  assert.equal(d.netId, "N_dev123");
+});
 
 test("isSameOrigin: matching Origin header is same-origin", () => {
   const req = new Request("https://app.example.com/api/sandbox-call", {

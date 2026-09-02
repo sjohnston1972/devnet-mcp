@@ -35,8 +35,9 @@ Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded
 "Push to DEV / Push to PROD" in the chat UI calls `POST /api/sandbox-call`, which can execute a real write against the Meraki Dashboard API using the server's `MERAKI_SANDBOX_API_KEY` secret. That is a real credential against real network gear, so the endpoint enforces (`src/sandbox-guard.ts`, wired in `src/index.ts`):
 
 - **The server key is same-origin only.** If a request omits `x-user-meraki-key` (i.e. it wants to use the server's own secret), it must carry an `Origin` or `Referer` header matching this Worker's own origin. No `Origin`/`Referer` at all -- e.g. a bare `curl` -- is treated as cross-origin and refused (`403`), not trusted by default.
+- **The server key can never be retargeted.** `x-user-meraki-org` / `x-user-meraki-network` / `x-user-meraki-serial` are only honored when the caller also supplies their own `x-user-meraki-key`. When the server key is in play, a value in any of those headers that disagrees with the server's configured DEV/PROD slot is an explicit `403` refusal -- never silently ignored or coerced to the configured value. Fails closed too: if the server's org/network isn't configured, the call 422s instead of resolving to nothing.
 
-A caller supplying their own `x-user-meraki-key` is unaffected by the origin check above -- they're only ever driving their own credential.
+A caller supplying their own `x-user-meraki-key` is unaffected by the checks above -- they're only ever driving their own credential against their own org/network/device.
 
 ## Stack
 
