@@ -30,6 +30,14 @@ Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded
 - **Suggestion chips** — prefilled prompts to get started.
 - **Mobile responsive** — works fine on phones.
 
+## `/api/sandbox-call` security model
+
+"Push to DEV / Push to PROD" in the chat UI calls `POST /api/sandbox-call`, which can execute a real write against the Meraki Dashboard API using the server's `MERAKI_SANDBOX_API_KEY` secret. That is a real credential against real network gear, so the endpoint enforces (`src/sandbox-guard.ts`, wired in `src/index.ts`):
+
+- **The server key is same-origin only.** If a request omits `x-user-meraki-key` (i.e. it wants to use the server's own secret), it must carry an `Origin` or `Referer` header matching this Worker's own origin. No `Origin`/`Referer` at all -- e.g. a bare `curl` -- is treated as cross-origin and refused (`403`), not trusted by default.
+
+A caller supplying their own `x-user-meraki-key` is unaffected by the origin check above -- they're only ever driving their own credential.
+
 ## Stack
 
 | Layer       | Tech                                                                 |
@@ -49,7 +57,8 @@ Ask anything about Cisco APIs and get a streamed, code-formatted answer grounded
 │   ├── index.ts             # Worker entry: /api/chat, MCP client, AI streaming
 │   ├── snippet-builder.ts   # Deterministic curl snippets from MCP spec excerpts
 │   ├── chat-history.ts      # History shaping for the Anthropic Messages API
-│   └── upstream-body.ts     # Body forwarding rules for Meraki pushes
+│   ├── upstream-body.ts     # Body forwarding rules for Meraki pushes
+│   └── sandbox-guard.ts     # /api/sandbox-call security: origin gating, override lockdown, rate limit, audit log
 ├── public/
 │   ├── index.html           # Chat shell
 │   ├── styles.css           # Meraki theme + animations

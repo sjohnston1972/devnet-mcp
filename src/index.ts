@@ -17,6 +17,7 @@ import {
 } from "./chat-request-guard.ts";
 import { SlidingCounter } from "./rate-limiter.ts";
 import { sameOrigin } from "./security.ts";
+import { isSameOrigin } from "./sandbox-guard.ts";
 
 interface Env {
   AI: Ai;
@@ -226,7 +227,9 @@ interface SandboxCallBody {
   env?: "dev" | "prod";
 }
 
-async function handleSandboxCall(request: Request, env: Env): Promise<Response> {
+export async function handleSandboxCall(request: Request, env: Env): Promise<Response> {
+  const selfUrl = new URL(request.url);
+
   let payload: SandboxCallBody;
   try {
     payload = await request.json();
@@ -259,6 +262,16 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
           "no Meraki API key configured. Set MERAKI_SANDBOX_API_KEY via `wrangler secret put`.",
       },
       { status: 503 },
+    );
+  }
+
+  // Issue #9: the server's own Meraki key may only ever be driven by the
+  // app's own page. A caller bringing their own key is fine -- they can
+  // only ever reach their own org with their own credential.
+  if (!userKey && !isSameOrigin(request, selfUrl)) {
+    return Response.json(
+      { error: "cross-origin callers must supply their own x-user-meraki-key" },
+      { status: 403 },
     );
   }
 
