@@ -2,6 +2,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { upstreamBodyFor } from "./upstream-body";
 import { buildCurlSnippet } from "./snippet-builder";
 import { toAnthropicTurns } from "./chat-history";
+import {
+  openMcpSession,
+  mcpRequest,
+  callMcpTool,
+  callMcpToolWithSession,
+  closeMcpSession,
+  type McpToolResult,
+} from "./mcp-session";
 
 interface Env {
   AI: Ai;
@@ -482,119 +490,6 @@ function claudeChatResponse(
   ctx.waitUntil(pump);
 
   return new Response(readable, { headers });
-}
-
-interface McpToolResult {
-  content?: Array<{ type: string; text?: string }>;
-  structuredContent?: { result?: unknown[] };
-  isError?: boolean;
-  error?: string;
-}
-
-type McpSession = Record<string, string>;
-
-async function openMcpSession(mcpUrl: string): Promise<McpSession> {
-  const headers: McpSession = {
-    "content-type": "application/json",
-    accept: "application/json, text/event-stream",
-  };
-
-  const initRes = await fetch(mcpUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "devnet-mcp", version: "0.1.0" },
-      },
-    }),
-  });
-
-  if (!initRes.ok) {
-    throw new Error(`initialize failed: HTTP ${initRes.status}`);
-  }
-
-  const sessionId = initRes.headers.get("mcp-session-id");
-  if (sessionId) headers["mcp-session-id"] = sessionId;
-
-  await readMcpBody(initRes);
-
-  if (sessionId) {
-    await fetch(mcpUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "notifications/initialized",
-        params: {},
-      }),
-    }).catch(() => {});
-  }
-
-  return headers;
-}
-
-async function mcpRequest(
-  mcpUrl: string,
-  session: McpSession,
-  payload: Record<string, unknown>,
-): Promise<{ result?: unknown; error?: { message?: string } } | null> {
-  const res = await fetch(mcpUrl, {
-    method: "POST",
-    headers: session,
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    throw new Error(`MCP request failed: HTTP ${res.status}`);
-  }
-  return readMcpBody(res);
-}
-
-async function callMcpTool(
-  mcpUrl: string,
-  toolName: string,
-  args: Record<string, unknown>,
-): Promise<McpToolResult> {
-  const session = await openMcpSession(mcpUrl);
-  const parsed = await mcpRequest(mcpUrl, session, {
-    jsonrpc: "2.0",
-    id: 2,
-    method: "tools/call",
-    params: { name: toolName, arguments: args },
-  });
-  return (parsed?.result as McpToolResult) ?? { error: "no result" };
-}
-
-async function readMcpBody(res: Response): Promise<{ result?: unknown } | null> {
-  const ct = res.headers.get("content-type") ?? "";
-  const text = await res.text();
-  if (!text) return null;
-
-  if (ct.includes("text/event-stream")) {
-    for (const line of text.split("\n")) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("data:")) {
-        const data = trimmed.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
-        try {
-          return JSON.parse(data);
-        } catch {
-          /* keep scanning */
-        }
-      }
-    }
-    return null;
-  }
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
 }
 
 function extractHitCount(result: McpToolResult | { error: string }): number {
