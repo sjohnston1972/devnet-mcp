@@ -10,6 +10,7 @@ import {
   closeMcpSession,
   type McpToolResult,
 } from "./mcp-session";
+import { resolvePath } from "./resolve-path";
 
 interface Env {
   AI: Ai;
@@ -27,6 +28,8 @@ interface Env {
   MERAKI_PROD_NAME?: string;
   MERAKI_PROD_NETWORK_ID?: string;
   MERAKI_PROD_NETWORK_NAME?: string;
+  MERAKI_DEV_DEVICE_SERIAL?: string;
+  MERAKI_PROD_DEVICE_SERIAL?: string;
 }
 
 interface ChatMessage {
@@ -97,6 +100,7 @@ interface MerakiSlot {
   name: string;
   networkId: string;
   networkName: string;
+  serial: string;
 }
 
 function merakiBase(env: Env): string {
@@ -112,6 +116,7 @@ function devSlot(env: Env): MerakiSlot {
     name: env.MERAKI_DEV_NAME || "Development",
     networkId: env.MERAKI_DEV_NETWORK_ID || "",
     networkName: env.MERAKI_DEV_NETWORK_NAME || "",
+    serial: env.MERAKI_DEV_DEVICE_SERIAL || "",
   };
 }
 
@@ -120,6 +125,7 @@ function prodSlot(env: Env): MerakiSlot {
     name: env.MERAKI_PROD_NAME || "Production",
     networkId: env.MERAKI_PROD_NETWORK_ID || "",
     networkName: env.MERAKI_PROD_NETWORK_NAME || "",
+    serial: env.MERAKI_PROD_DEVICE_SERIAL || "",
   };
 }
 
@@ -183,6 +189,7 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
   const userKey = request.headers.get("x-user-meraki-key")?.trim();
   const userOrg = request.headers.get("x-user-meraki-org")?.trim();
   const userNet = request.headers.get("x-user-meraki-network")?.trim();
+  const userSerial = request.headers.get("x-user-meraki-serial")?.trim();
   const apiKey = userKey || env.MERAKI_SANDBOX_API_KEY;
 
   if (!apiKey) {
@@ -197,8 +204,9 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
 
   const orgId = userOrg || merakiOrgId(env);
   const netId = userNet || slot.networkId;
+  const serial = userSerial || slot.serial;
 
-  const { resolvedPath, missing } = resolvePath(payload.path, { orgId, netId });
+  const { resolvedPath, missing } = resolvePath(payload.path, { orgId, netId, serial });
   if (missing.length > 0) {
     return Response.json(
       {
@@ -272,44 +280,6 @@ async function handleSandboxCall(request: Request, env: Env): Promise<Response> 
     env: targetEnv,
     networkId: netId || null,
   });
-}
-
-function resolvePath(
-  rawPath: string,
-  values: { orgId?: string; netId?: string; serial?: string },
-): { resolvedPath: string; missing: string[] } {
-  let path = rawPath.trim();
-  // Drop fully-qualified URLs
-  path = path.replace(/^https?:\/\/[^/]+/i, "");
-  if (!path.startsWith("/")) path = "/" + path;
-  // Strip query for safety on substitution; reattach later
-  const qIdx = path.indexOf("?");
-  const query = qIdx >= 0 ? path.slice(qIdx) : "";
-  let basePath = qIdx >= 0 ? path.slice(0, qIdx) : path;
-
-  // Normalize token to lowercase + strip underscores so {organization_id},
-  // {organizationId}, {OrganizationID}, {ORG_ID} all resolve.
-  basePath = basePath.replace(
-    /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g,
-    (full, token: string) => {
-      const norm = token.toLowerCase().replace(/_/g, "");
-      if ((norm === "organizationid" || norm === "orgid") && values.orgId) {
-        return values.orgId;
-      }
-      if ((norm === "networkid" || norm === "netid") && values.netId) {
-        return values.netId;
-      }
-      if ((norm === "serial" || norm === "deviceserial") && values.serial) {
-        return values.serial;
-      }
-      return full;
-    },
-  );
-
-  const missingMatches = basePath.match(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g) ?? [];
-  const missing = [...new Set(missingMatches)];
-
-  return { resolvedPath: basePath + query, missing };
 }
 
 async function handleMcpStatus(env: Env): Promise<Response> {
