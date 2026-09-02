@@ -5,9 +5,7 @@ import { toAnthropicTurns, buildFallbackMessages } from "./chat-history";
 import {
   openMcpSession,
   mcpRequest,
-  callMcpTool,
-  callMcpToolWithSession,
-  closeMcpSession,
+  runMcpSearches,
   type McpToolResult,
 } from "./mcp-session";
 import { resolvePath } from "./resolve-path";
@@ -356,18 +354,7 @@ async function handleChat(
 
   const keyword = lastUser.content.slice(0, 500);
 
-  const [merakiResults, catalystResults] = await Promise.all([
-    callMcpTool(env.MCP_URL, "Meraki-API-Doc-Search", {
-      keyword,
-      return_api_only: false,
-      top_k: 3,
-    }).catch((e) => ({ error: String(e) })),
-    callMcpTool(env.MCP_URL, "CatalystCenter-API-Doc-Search", {
-      keyword,
-      return_api_only: false,
-      top_k: 3,
-    }).catch((e) => ({ error: String(e) })),
-  ]);
+  const { merakiResults, catalystResults } = await runMcpSearches(env.MCP_URL, keyword);
 
   const contextBlock = formatContext(merakiResults, catalystResults);
   const finalUserContent = `<context>\n${contextBlock}\n</context>\n\nUser question: ${lastUser.content}`;

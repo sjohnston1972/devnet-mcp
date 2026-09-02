@@ -121,6 +121,50 @@ export async function closeMcpSession(mcpUrl: string, session: McpSession): Prom
   }
 }
 
+// Runs both DevNet doc searches (Meraki + Catalyst Center) over a single
+// shared MCP session instead of each opening its own — one initialize
+// handshake per chat request instead of two. The session is always closed
+// once both searches have settled, even if one (or both) threw; a failure
+// opening the session itself degrades to empty results rather than failing
+// the caller's request.
+export async function runMcpSearches(
+  mcpUrl: string,
+  keyword: string,
+): Promise<{
+  merakiResults: McpToolResult | { error: string };
+  catalystResults: McpToolResult | { error: string };
+}> {
+  let session: McpSession;
+  try {
+    session = await openMcpSession(mcpUrl);
+  } catch (e) {
+    const error = { error: String(e) };
+    return { merakiResults: error, catalystResults: error };
+  }
+
+  try {
+    const [merakiResults, catalystResults] = await Promise.all([
+      callMcpToolWithSession(
+        mcpUrl,
+        session,
+        "Meraki-API-Doc-Search",
+        { keyword, return_api_only: false, top_k: 3 },
+        2,
+      ).catch((e) => ({ error: String(e) })),
+      callMcpToolWithSession(
+        mcpUrl,
+        session,
+        "CatalystCenter-API-Doc-Search",
+        { keyword, return_api_only: false, top_k: 3 },
+        3,
+      ).catch((e) => ({ error: String(e) })),
+    ]);
+    return { merakiResults, catalystResults };
+  } finally {
+    await closeMcpSession(mcpUrl, session);
+  }
+}
+
 export async function readMcpBody(res: Response): Promise<{ result?: unknown } | null> {
   const ct = res.headers.get("content-type") ?? "";
   const text = await res.text();
